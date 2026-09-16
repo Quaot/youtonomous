@@ -8,7 +8,7 @@
 
 #include <nlohmann/json.hpp>
 
-using nlohmann::json;
+using nlohmann::json; //settings, for setting things... :)
 
 static int readInt(const json& item, const char* key, int fallback)
 {
