@@ -1,5 +1,6 @@
 #pragma once
 
+#include <string>
 #include <vector>
 
 #include <windows.h>
@@ -14,5 +15,6 @@ HWND create(HWND parent, HINSTANCE instance);
 void setRange(HWND bar, int length);
 void setPosition(HWND bar, int position);
 void setMarks(HWND bar, const std::vector<Bookmark>& marks, int start);
+std::string hoverText(HWND bar);
 
 }

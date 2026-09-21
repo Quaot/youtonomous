@@ -7,6 +7,7 @@
 
 #include "check.h"
 #include "seekbar.h"
+#include "timecode.h"
 
 static HWND parent;
 static std::vector<long long> sent_seeks;
@@ -298,6 +299,59 @@ static void testTwoBars(HINSTANCE instance, HWND bar)
     DestroyWindow(other);
 }
 
+static void testHover(HWND bar)
+{
+    MoveWindow(bar, 0, 0, 600, 24, TRUE);
+    seekbar::setRange(bar, 300);
+    seekbar::setMarks(bar, {}, 0);
+    int width = clientWidth(bar);
+    int y = middleY(bar);
+
+    press(bar, WM_MOUSELEAVE, 0, 0, 0);
+    check(seekbar::hoverText(bar).empty(), "hoverText is empty when no tooltip is shown");
+
+    press(bar, WM_MOUSEMOVE, 0, 0, y);
+    std::string at_zero = seekbar::hoverText(bar);
+    check(!at_zero.empty(), "bare hover at x=0 produces a tooltip");
+    check(at_zero == timecode::format(0), "hover at x=0 shows timecode::format(0), got \"" + at_zero + "\"");
+
+    press(bar, WM_MOUSEMOVE, 0, width / 2, y);
+    std::string at_mid = seekbar::hoverText(bar);
+    check(!at_mid.empty(), "bare hover at x=width/2 produces a tooltip");
+    int expected = static_cast<int>(std::lround(static_cast<double>(width / 2) * 300 / width));
+    bool matched = false;
+    for (int s = expected - 2; s <= expected + 2; ++s)
+        if (at_mid == timecode::format(s))
+            matched = true;
+    check(matched, "hover at x=width/2 shows a timecode near " + timecode::format(expected) + ", got \"" + at_mid + "\"");
+
+    press(bar, WM_MOUSEMOVE, 0, width / 2, y);
+    check(!seekbar::hoverText(bar).empty(), "a tooltip is shown before WM_MOUSELEAVE");
+    press(bar, WM_MOUSELEAVE, 0, 0, 0);
+    check(seekbar::hoverText(bar).empty(), "hoverText is empty after WM_MOUSELEAVE");
+
+    seekbar::setRange(bar, 0);
+    press(bar, WM_MOUSEMOVE, 0, width / 2, y);
+    check(seekbar::hoverText(bar).empty(), "hover with length 0 shows no tooltip");
+    seekbar::setRange(bar, 300);
+
+    press(bar, WM_LBUTTONDOWN, MK_LBUTTON, width / 4, y);
+    press(bar, WM_MOUSEMOVE, MK_LBUTTON, width / 2, y);
+    check(seekbar::hoverText(bar).empty(), "no tooltip is shown while dragging");
+    press(bar, WM_LBUTTONUP, 0, width / 2, y);
+    takeSeeks();
+
+    std::vector<Bookmark> marks(1);
+    marks[0].time = 150;
+    marks[0].label = "intro";
+    seekbar::setMarks(bar, marks, 0);
+    press(bar, WM_MOUSEMOVE, 0, width / 2, y);
+    std::string tip = seekbar::hoverText(bar);
+    check(tip.find("intro") != std::string::npos, "hover on a bookmark tick includes its label, got \"" + tip + "\"");
+    seekbar::setMarks(bar, {}, 0);
+    takeSeeks();
+}
+
 int main()
 {
     HINSTANCE instance = GetModuleHandleW(nullptr);
@@ -326,6 +380,7 @@ int main()
     testZeroLength(bar);
     testResize(bar);
     testTwoBars(instance, bar);
+    testHover(bar);
 
     DestroyWindow(bar);
     DestroyWindow(parent);
