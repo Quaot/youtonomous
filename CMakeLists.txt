@@ -23,7 +23,7 @@ add_library(players STATIC
     src/player/make_player.cpp
 )
 target_include_directories(players PUBLIC src/player)
-target_link_libraries(players PUBLIC vlc mpv)
+target_link_libraries(players PUBLIC vlc)
 
 configure_file(packaging/app.rc.in app.rc @ONLY)
 

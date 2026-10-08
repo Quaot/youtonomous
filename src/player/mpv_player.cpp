@@ -7,35 +7,96 @@
 
 #include <mpv/client.h>
 
-MpvPlayer::MpvPlayer()
-    : mpv_(mpv_create())
+namespace {
+
+// Loading libmpv costs a few percent of a core even when nothing plays, so the
+// library is only brought in when mpv is the chosen backend.
+struct MpvApi {
+    mpv_handle* (*create)() = nullptr;
+    int (*initialize)(mpv_handle*) = nullptr;
+    void (*terminate_destroy)(mpv_handle*) = nullptr;
+    int (*set_option)(mpv_handle*, const char*, mpv_format, void*) = nullptr;
+    int (*set_option_string)(mpv_handle*, const char*, const char*) = nullptr;
+    int (*set_property)(mpv_handle*, const char*, mpv_format, void*) = nullptr;
+    int (*set_property_string)(mpv_handle*, const char*, const char*) = nullptr;
+    int (*get_property)(mpv_handle*, const char*, mpv_format, void*) = nullptr;
+    int (*command)(mpv_handle*, const char**) = nullptr;
+    mpv_event* (*wait_event)(mpv_handle*, double) = nullptr;
+    bool ok = false;
+};
+
+template <typename Function>
+void bind(HMODULE library, Function& target, const char* name, bool& ok)
 {
+    target = reinterpret_cast<Function>(reinterpret_cast<void*>(GetProcAddress(library, name)));
+    if (!target)
+        ok = false;
+}
+
+MpvApi loadApi()
+{
+    MpvApi api;
+    HMODULE library = LoadLibraryW(L"libmpv-2.dll");
+    if (!library)
+        library = LoadLibraryW(L"mpv-2.dll");
+    if (!library)
+        return api;
+
+    api.ok = true;
+    bind(library, api.create, "mpv_create", api.ok);
+    bind(library, api.initialize, "mpv_initialize", api.ok);
+    bind(library, api.terminate_destroy, "mpv_terminate_destroy", api.ok);
+    bind(library, api.set_option, "mpv_set_option", api.ok);
+    bind(library, api.set_option_string, "mpv_set_option_string", api.ok);
+    bind(library, api.set_property, "mpv_set_property", api.ok);
+    bind(library, api.set_property_string, "mpv_set_property_string", api.ok);
+    bind(library, api.get_property, "mpv_get_property", api.ok);
+    bind(library, api.command, "mpv_command", api.ok);
+    bind(library, api.wait_event, "mpv_wait_event", api.ok);
+    return api;
+}
+
+const MpvApi& mpv()
+{
+    static MpvApi api = loadApi();
+    return api;
+}
+
+}
+
+MpvPlayer::MpvPlayer()
+{
+    if (!mpv().ok)
+        return;
+
+    mpv_ = mpv().create();
     if (!mpv_)
         return;
 
-    mpv_set_option_string(mpv_, "config", "no");
-    mpv_set_option_string(mpv_, "terminal", "no");
-    mpv_set_option_string(mpv_, "idle", "yes");
-    mpv_set_option_string(mpv_, "keep-open", "yes");
-    mpv_set_option_string(mpv_, "hr-seek", "yes");
-    mpv_set_option_string(mpv_, "osc", "no");
-    mpv_set_option_string(mpv_, "osd-level", "0");
-    mpv_set_option_string(mpv_, "input-default-bindings", "no");
-    mpv_set_option_string(mpv_, "input-vo-keyboard", "no");
-    mpv_set_option_string(mpv_, "input-cursor", "no");
+    mpv().set_option_string(mpv_, "config", "no");
+    mpv().set_option_string(mpv_, "terminal", "no");
+    mpv().set_option_string(mpv_, "idle", "yes");
+    mpv().set_option_string(mpv_, "keep-open", "yes");
+    mpv().set_option_string(mpv_, "hr-seek", "yes");
+    mpv().set_option_string(mpv_, "hwdec", "auto-safe");
+    mpv().set_option_string(mpv_, "osc", "no");
+    mpv().set_option_string(mpv_, "osd-level", "0");
+    mpv().set_option_string(mpv_, "input-default-bindings", "no");
+    mpv().set_option_string(mpv_, "input-vo-keyboard", "no");
+    mpv().set_option_string(mpv_, "input-cursor", "no");
 }
 
 MpvPlayer::~MpvPlayer()
 {
     if (mpv_)
-        mpv_terminate_destroy(mpv_);
+        mpv().terminate_destroy(mpv_);
 }
 
 void MpvPlayer::initialize()
 {
     if (!mpv_ || initialized_)
         return;
-    initialized_ = mpv_initialize(mpv_) >= 0;
+    initialized_ = mpv().initialize(mpv_) >= 0;
 }
 
 void MpvPlayer::attach(HWND window)
@@ -44,7 +105,7 @@ void MpvPlayer::attach(HWND window)
         return;
 
     int64_t wid = static_cast<int64_t>(reinterpret_cast<intptr_t>(window));
-    mpv_set_option(mpv_, "wid", MPV_FORMAT_INT64, &wid);
+    mpv().set_option(mpv_, "wid", MPV_FORMAT_INT64, &wid);
     initialize();
 }
 
@@ -55,8 +116,8 @@ void MpvPlayer::open(const std::string& path, int start)
         return;
 
     std::string start_text = std::to_string(std::max(start, 0));
-    mpv_set_property_string(mpv_, "start", start_text.c_str());
-    mpv_set_property_string(mpv_, "pause", "no");
+    mpv().set_property_string(mpv_, "start", start_text.c_str());
+    mpv().set_property_string(mpv_, "pause", "no");
     applyVolumeAndSpeed();
     command({"loadfile", path.c_str(), "replace"});
     loaded_ = true;
@@ -69,7 +130,7 @@ void MpvPlayer::togglePause()
 
     if (flag("eof-reached")) {
         command({"seek", "0", "absolute+exact"});
-        mpv_set_property_string(mpv_, "pause", "no");
+        mpv().set_property_string(mpv_, "pause", "no");
         return;
     }
     command({"cycle", "pause"});
@@ -130,13 +191,13 @@ void MpvPlayer::applyVolumeAndSpeed()
         return;
     double volume = volume_;
     double speed = speed_;
-    mpv_set_property(mpv_, "volume", MPV_FORMAT_DOUBLE, &volume);
-    mpv_set_property(mpv_, "speed", MPV_FORMAT_DOUBLE, &speed);
+    mpv().set_property(mpv_, "volume", MPV_FORMAT_DOUBLE, &volume);
+    mpv().set_property(mpv_, "speed", MPV_FORMAT_DOUBLE, &speed);
 }
 
 void MpvPlayer::drainEvents() const
 {
-    while (mpv_wait_event(mpv_, 0)->event_id != MPV_EVENT_NONE) {
+    while (mpv().wait_event(mpv_, 0)->event_id != MPV_EVENT_NONE) {
     }
 }
 
@@ -144,7 +205,7 @@ bool MpvPlayer::flag(const char* name) const
 {
     drainEvents();
     int value = 0;
-    if (mpv_get_property(mpv_, name, MPV_FORMAT_FLAG, &value) < 0)
+    if (mpv().get_property(mpv_, name, MPV_FORMAT_FLAG, &value) < 0)
         return false;
     return value != 0;
 }
@@ -153,7 +214,7 @@ double MpvPlayer::number(const char* name) const
 {
     drainEvents();
     double value = 0;
-    if (mpv_get_property(mpv_, name, MPV_FORMAT_DOUBLE, &value) < 0 || !std::isfinite(value))
+    if (mpv().get_property(mpv_, name, MPV_FORMAT_DOUBLE, &value) < 0 || !std::isfinite(value))
         return 0;
     return value;
 }
@@ -162,5 +223,5 @@ void MpvPlayer::command(std::initializer_list<const char*> args) const
 {
     std::vector<const char*> list(args);
     list.push_back(nullptr);
-    mpv_command(mpv_, list.data());
+    mpv().command(mpv_, list.data());
 }
