@@ -74,7 +74,24 @@ int VlcPlayer::time() const
 {
     if (!loaded_)
         return 0;
-    return static_cast<int>(std::max<libvlc_time_t>(0, libvlc_media_player_get_time(player_)) / 1000);
+
+    int now = static_cast<int>(std::max<libvlc_time_t>(0, libvlc_media_player_get_time(player_)) / 1000);
+    if (seek_target_ < 0)
+        return now;
+
+    // For about half a second after a seek VLC reports zero, or the time it
+    // held before the seek, so follow the expected position until it settles.
+    double elapsed = (GetTickCount64() - seek_tick_) / 1000.0;
+    if (elapsed > 2.0) {
+        seek_target_ = -1;
+        return now;
+    }
+
+    int expected = seek_target_ + static_cast<int>(elapsed * speed_);
+    int end = length();
+    if (end > 0)
+        expected = std::min(expected, end - 1);
+    return std::abs(now - expected) > 1 ? expected : now;
 }
 
 int VlcPlayer::length() const
@@ -93,6 +110,8 @@ void VlcPlayer::seek(int seconds)
     if (end > 0)
         seconds = std::min(seconds, end - 1);
     seconds = std::max(seconds, 0);
+    seek_target_ = seconds;
+    seek_tick_ = GetTickCount64();
     libvlc_media_player_set_time(player_, static_cast<libvlc_time_t>(seconds) * 1000);
 }
 

@@ -37,6 +37,8 @@ private:
     libvlc_instance_t* vlc_ = nullptr;
     libvlc_media_player_t* player_ = nullptr;
     bool loaded_ = false;
+    mutable int seek_target_ = -1;
+    mutable unsigned long long seek_tick_ = 0;
     int volume_ = 100;
     double speed_ = 1.0;
 };
