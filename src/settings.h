@@ -13,6 +13,8 @@ struct Settings {
     bool maximized = false;
     int volume = 100;
     double speed = 1.0;
+    int pitch = 0;
+    bool keep_pitch = true;
 };
 
 Settings loadSettings(const std::filesystem::path& file);

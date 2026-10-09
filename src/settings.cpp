@@ -49,6 +49,10 @@ static Settings fromJson(const json& item)
         settings.maximized = item["maximized"].get<bool>();
 
     settings.volume = std::clamp(readInt(item, "volume", defaults.volume), 0, 100);
+    settings.pitch = std::clamp(readInt(item, "pitch", defaults.pitch), -6, 6);
+
+    if (item.contains("keep_pitch") && item["keep_pitch"].is_boolean())
+        settings.keep_pitch = item["keep_pitch"].get<bool>();
 
     if (item.contains("speed") && item["speed"].is_number()) {
         double speed = item["speed"].get<double>();
@@ -85,7 +89,9 @@ bool saveSettings(const Settings& settings, const std::filesystem::path& file)
             {"window_height", settings.window_height},
             {"maximized", settings.maximized},
             {"volume", settings.volume},
-            {"speed", settings.speed}};
+            {"speed", settings.speed},
+            {"pitch", settings.pitch},
+            {"keep_pitch", settings.keep_pitch}};
 
         std::error_code error;
         std::filesystem::create_directories(file.parent_path(), error);

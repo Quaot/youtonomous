@@ -22,7 +22,7 @@ static fs::path root;
 
 static const std::vector<std::string> field_keys = {
     "backend", "videos_folder", "window_x", "window_y", "window_width",
-    "window_height", "maximized", "volume", "speed"};
+    "window_height", "maximized", "volume", "speed", "pitch", "keep_pitch"};
 
 static void writeFile(const fs::path& path, const std::string& content)
 {
@@ -53,7 +53,9 @@ static std::string describe(const Settings& settings)
          + " window_height=" + std::to_string(settings.window_height)
          + " maximized=" + std::string(settings.maximized ? "true" : "false")
          + " volume=" + std::to_string(settings.volume)
-         + " speed=" + formatDouble(settings.speed) + "}";
+         + " speed=" + formatDouble(settings.speed)
+         + " pitch=" + std::to_string(settings.pitch)
+         + " keep_pitch=" + std::string(settings.keep_pitch ? "true" : "false") + "}";
 }
 
 static bool sameSettings(const Settings& a, const Settings& b)
@@ -61,7 +63,8 @@ static bool sameSettings(const Settings& a, const Settings& b)
     return a.backend == b.backend && a.videos_folder == b.videos_folder
         && a.window_x == b.window_x && a.window_y == b.window_y
         && a.window_width == b.window_width && a.window_height == b.window_height
-        && a.maximized == b.maximized && a.volume == b.volume && a.speed == b.speed;
+        && a.maximized == b.maximized && a.volume == b.volume && a.speed == b.speed
+        && a.pitch == b.pitch && a.keep_pitch == b.keep_pitch;
 }
 
 static Settings tryLoad(const fs::path& file, const std::string& name)
@@ -96,6 +99,8 @@ static json baseJson()
     document["maximized"] = true;
     document["volume"] = 42;
     document["speed"] = 1.5;
+    document["pitch"] = 3;
+    document["keep_pitch"] = false;
     return document;
 }
 
@@ -111,6 +116,8 @@ static Settings baseSettings()
     settings.maximized = true;
     settings.volume = 42;
     settings.speed = 1.5;
+    settings.pitch = 3;
+    settings.keep_pitch = false;
     return settings;
 }
 
@@ -135,6 +142,10 @@ static void resetField(Settings& settings, const std::string& key)
         settings.volume = defaults.volume;
     else if (key == "speed")
         settings.speed = defaults.speed;
+    else if (key == "pitch")
+        settings.pitch = defaults.pitch;
+    else if (key == "keep_pitch")
+        settings.keep_pitch = defaults.keep_pitch;
 }
 
 static Settings loadText(const std::string& content, const std::string& name)
@@ -176,6 +187,21 @@ static void checkSpeed(double given, double wanted)
     Settings expected = baseSettings();
     expected.speed = wanted;
     checkBaseWith("speed", given, expected, "speed " + formatDouble(given) + " loads as " + formatDouble(wanted));
+}
+
+static void checkPitch(int given, int wanted)
+{
+    Settings expected = baseSettings();
+    expected.pitch = wanted;
+    checkBaseWith("pitch", given, expected, "pitch " + std::to_string(given) + " loads as " + std::to_string(wanted));
+}
+
+static void checkKeepPitch(bool given, bool wanted)
+{
+    Settings expected = baseSettings();
+    expected.keep_pitch = wanted;
+    checkBaseWith("keep_pitch", given, expected,
+                  "keep_pitch " + std::string(given ? "true" : "false") + " loads as " + std::string(wanted ? "true" : "false"));
 }
 
 static void checkWidth(int given, int wanted)
@@ -222,6 +248,8 @@ static void testDefaults()
     check(!settings.maximized, "default maximized is false");
     check(settings.volume == 100, "default volume is 100, got " + std::to_string(settings.volume));
     check(settings.speed == 1.0, "default speed is 1.0, got " + formatDouble(settings.speed));
+    check(settings.pitch == 0, "default pitch is 0, got " + std::to_string(settings.pitch));
+    check(settings.keep_pitch, "default keep_pitch is true");
 }
 
 static void testMissingFile()
@@ -295,6 +323,22 @@ static void testWrongTypes()
         {"speed", nullptr},
         {"speed", json::array({1.25})},
         {"speed", json::object()},
+        {"pitch", "3"},
+        {"pitch", true},
+        {"pitch", false},
+        {"pitch", nullptr},
+        {"pitch", 1.5},
+        {"pitch", -1.5},
+        {"pitch", json::array({3})},
+        {"pitch", json::object()},
+        {"keep_pitch", 1},
+        {"keep_pitch", 0},
+        {"keep_pitch", 1.5},
+        {"keep_pitch", "true"},
+        {"keep_pitch", "false"},
+        {"keep_pitch", nullptr},
+        {"keep_pitch", json::array({false})},
+        {"keep_pitch", json::object()},
     };
     for (const char* key : {"window_x", "window_y", "window_width", "window_height", "volume"}) {
         cases.push_back({key, "500"});
@@ -320,6 +364,8 @@ static void testWrongTypes()
     all_wrong["maximized"] = "yes";
     all_wrong["volume"] = "50";
     all_wrong["speed"] = "fast";
+    all_wrong["pitch"] = "3";
+    all_wrong["keep_pitch"] = 1;
     checkLoads(all_wrong.dump(), Settings(), "every field with the wrong type gives default settings");
 }
 
@@ -506,6 +552,8 @@ static void testRoundTrips()
         check(document.value("maximized", json()) == json(settings.maximized), "saved maximized value is stored under maximized");
         check(document.value("volume", json()) == json(settings.volume), "saved volume value is stored under volume");
         check(document.value("speed", json()) == json(settings.speed), "saved speed value is stored under speed");
+        check(document.value("pitch", json()) == json(settings.pitch), "saved pitch value is stored under pitch");
+        check(document.value("keep_pitch", json()) == json(settings.keep_pitch), "saved keep_pitch value is stored under keep_pitch");
     }
 
     json clamped = baseJson();
@@ -513,6 +561,7 @@ static void testRoundTrips()
     clamped["volume"] = 250;
     clamped["speed"] = 9.0;
     clamped["window_width"] = 10;
+    clamped["pitch"] = 50;
     Settings loaded = loadText(clamped.dump(), "clamped then saved");
     checkRoundTrip(loaded, "loaded-from-clamped");
 }
@@ -628,6 +677,79 @@ static void testLoadTwice()
     check(sameSettings(hand_second, expected), "loading the hand-edited file again gives the same result, got " + describe(hand_second));
 }
 
+static void testPitch()
+{
+    checkPitch(0, 0);
+    checkPitch(1, 1);
+    checkPitch(-1, -1);
+    checkPitch(5, 5);
+    checkPitch(-5, -5);
+    checkPitch(6, 6);
+    checkPitch(-6, -6);
+    checkPitch(7, 6);
+    checkPitch(-7, -6);
+    checkPitch(12, 6);
+    checkPitch(-12, -6);
+    checkPitch(1000000, 6);
+    checkPitch(INT_MAX, 6);
+    checkPitch(INT_MIN, -6);
+}
+
+static void testKeepPitch()
+{
+    checkKeepPitch(true, true);
+    checkKeepPitch(false, false);
+
+    Settings alone;
+    alone.keep_pitch = false;
+    checkLoads("{\"keep_pitch\": false}", alone, "keep_pitch false on its own loads as false and the other fields default");
+}
+
+static void testPitchRoundTrips()
+{
+    for (int pitch : {-6, -1, 0, 1, 6}) {
+        for (bool keep_pitch : {true, false}) {
+            Settings settings = baseSettings();
+            settings.pitch = pitch;
+            settings.keep_pitch = keep_pitch;
+            checkRoundTrip(settings, "pitch-" + std::to_string(pitch) + "-keep-" + std::string(keep_pitch ? "true" : "false"));
+        }
+    }
+}
+
+static void testOldSettingsFile()
+{
+    fs::path file = root / "old-format" / "settings.json";
+    Settings settings = baseSettings();
+    check(trySave(settings, file, "old format setup"), "saveSettings() for the old-format setup returns true");
+
+    json document;
+    bool parsed = false;
+    try {
+        document = json::parse(readFile(file));
+        parsed = true;
+    } catch (...) {
+    }
+    check(parsed, "the saved file used to build an old settings file is valid JSON");
+    if (!parsed || !document.is_object())
+        return;
+
+    document.erase("pitch");
+    document.erase("keep_pitch");
+    check(!document.contains("pitch") && !document.contains("keep_pitch"), "the old settings file has neither new key");
+    writeFile(file, document.dump());
+
+    Settings expected = baseSettings();
+    expected.pitch = 0;
+    expected.keep_pitch = true;
+    Settings loaded = tryLoad(file, "old settings file");
+    check(sameSettings(loaded, expected), "a settings file without pitch and keep_pitch loads with 0 and true and keeps its other values, got " + describe(loaded));
+
+    check(trySave(loaded, file, "old format resave"), "saving a settings file loaded from the old format returns true");
+    Settings again = tryLoad(file, "old settings file resaved");
+    check(sameSettings(again, expected), "the resaved old settings file loads the same, got " + describe(again));
+}
+
 int main()
 {
     root = fs::temp_directory_path() / ("youtonomous-settings-test-" + std::to_string(GetCurrentProcessId()));
@@ -653,6 +775,10 @@ int main()
     testSaveFailure();
     testSaveTwice();
     testLoadTwice();
+    testPitch();
+    testKeepPitch();
+    testPitchRoundTrips();
+    testOldSettingsFile();
 
     fs::remove_all(root, error);
     return report();
