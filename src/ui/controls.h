@@ -33,6 +33,8 @@ enum ControlId {
     kResume,
     kEditMark,
     kMarkNote,
+    kPitch,
+    kKeepPitch,
 };
 
 const int kPad = 8;

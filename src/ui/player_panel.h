@@ -24,6 +24,12 @@ public:
     void showSpeed(double rate);
     double speedSetting() const;
 
+    void setPitchAvailable(bool available);
+    void showPitch(int semitones);
+    int pitchSetting() const;
+    void showKeepPitch(bool keep);
+    bool keepPitchSetting() const;
+
 private:
     HWND video_ = nullptr;
     HWND seekbar_ = nullptr;
@@ -36,6 +42,9 @@ private:
     HWND next_mark_ = nullptr;
     HWND time_label_ = nullptr;
     HWND speed_box_ = nullptr;
+    HWND pitch_box_ = nullptr;
+    HWND keep_pitch_box_ = nullptr;
     HWND volume_bar_ = nullptr;
     bool fullscreen_ = false;
+    bool keep_pitch_shown_ = true;
 };

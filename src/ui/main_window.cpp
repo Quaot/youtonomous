@@ -117,6 +117,10 @@ void MainWindow::saveSettingsOnClose()
     settings_.maximized = placement.showCmd == SW_SHOWMAXIMIZED;
     settings_.volume = player_->volume();
     settings_.speed = player_->speed();
+    if (player_->pitchSupported()) {
+        settings_.pitch = player_->pitch();
+        settings_.keep_pitch = player_->keepPitch();
+    }
     saveSettings(settings_, settings_file_);
 }
 
@@ -226,8 +230,14 @@ void MainWindow::createControls()
     player_->attach(player_panel_.videoWindow());
     player_->setVolume(settings_.volume);
     player_->setSpeed(settings_.speed);
+    player_->setKeepPitch(settings_.keep_pitch);
+    player_->setPitch(settings_.pitch);
+
     player_panel_.showVolume(player_->volume());
     player_panel_.showSpeed(player_->speed());
+    player_panel_.setPitchAvailable(player_->pitchSupported());
+    player_panel_.showPitch(player_->pitchSupported() ? player_->pitch() : settings_.pitch);
+    player_panel_.showKeepPitch(player_->pitchSupported() ? player_->keepPitch() : settings_.keep_pitch);
 }
 
 void MainWindow::layout(int width, int height)
@@ -269,6 +279,14 @@ void MainWindow::onCommand(int id, int code)
     case kSpeed:
         if (code == CBN_SELCHANGE)
             player_->setSpeed(player_panel_.speedSetting());
+        break;
+    case kPitch:
+        if (code == CBN_SELCHANGE)
+            player_->setPitch(player_panel_.pitchSetting());
+        break;
+    case kKeepPitch:
+        if (code == BN_CLICKED)
+            player_->setKeepPitch(player_panel_.keepPitchSetting());
         break;
     case kVideo:
         if (code == STN_DBLCLK)
@@ -424,6 +442,7 @@ void MainWindow::openVideo(const std::string& id)
     }
     SetWindowTextW(hwnd_, (L"Youtonomous - " + widen(found->title)).c_str());
     refreshMarks();
+    tick();
 }
 
 void MainWindow::removeSelected()

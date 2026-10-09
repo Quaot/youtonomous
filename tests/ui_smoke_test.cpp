@@ -256,6 +256,14 @@ static std::string got(int value)
     return ", got " + std::to_string(value);
 }
 
+static std::string narrowText(const std::wstring& text)
+{
+    std::string result;
+    for (wchar_t c : text)
+        result += c < 128 ? static_cast<char>(c) : '?';
+    return result;
+}
+
 static int markIndex(HWND top, const std::wstring& text)
 {
     std::vector<HWND> lists = children(top, L"ListBox");
@@ -405,6 +413,15 @@ static void secondRun(const std::wstring& command_line, std::wstring& environmen
     check(within(first, 19, 25), "reopened video starts at the saved start point" + got(first));
     check(waitFor([&] { return markCount(top) >= 2; }, 3000), "bookmarks survive a restart" + got(markCount(top)));
     check(speedShown(top) == L"1.5x", "the saved speed is shown after a restart");
+
+    std::vector<HWND> boxes = children(top, L"ComboBox");
+    check(boxes.size() >= 2, "a pitch box is shown next to the speed box");
+    if (boxes.size() >= 2)
+        check(textOf(boxes[1]) == L"+2", "the saved pitch is shown after a restart, got " + narrowText(textOf(boxes[1])));
+    HWND keep_pitch = button(top, L"Keep pitch");
+    check(keep_pitch != nullptr, "a keep pitch box is shown");
+    if (keep_pitch)
+        check(SendMessageW(keep_pitch, BM_GETCHECK, 0, 0) == BST_UNCHECKED, "the saved keep pitch setting is shown after a restart");
     check(volumeShown(top) == 40, "the saved volume is shown after a restart" + got(volumeShown(top)));
 
     std::wstring start_label = labelStartingWith(top, L"Start at");
@@ -474,6 +491,9 @@ int main(int argc, char** argv)
     settings["window_width"] = 1000;
     settings["window_height"] = 700;
     settings["maximized"] = false;
+    settings["backend"] = "mpv";
+    settings["pitch"] = 2;
+    settings["keep_pitch"] = false;
     std::ofstream(settings_file) << settings.dump();
 
     secondRun(command_line, environment, library_file);
