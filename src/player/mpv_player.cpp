@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <vector>
 
 #include <mpv/client.h>
@@ -119,6 +120,7 @@ void MpvPlayer::open(const std::string& path, int start)
     mpv().set_property_string(mpv_, "start", start_text.c_str());
     mpv().set_property_string(mpv_, "pause", "no");
     applyVolumeAndSpeed();
+    applyPitch();
     command({"loadfile", path.c_str(), "replace"});
     loaded_ = true;
 }
@@ -183,6 +185,35 @@ void MpvPlayer::setSpeed(double rate)
         return;
     speed_ = std::clamp(rate, 0.5, 2.0);
     applyVolumeAndSpeed();
+}
+
+void MpvPlayer::setPitch(int semitones)
+{
+    pitch_ = std::clamp(semitones, -6, 6);
+    applyPitch();
+}
+
+void MpvPlayer::setKeepPitch(bool keep)
+{
+    keep_pitch_ = keep;
+    applyPitch();
+}
+
+void MpvPlayer::applyPitch()
+{
+    if (!mpv_)
+        return;
+
+    mpv().set_property_string(mpv_, "audio-pitch-correction", keep_pitch_ ? "yes" : "no");
+
+    if (pitch_ == 0) {
+        mpv().set_property_string(mpv_, "af", "");
+        return;
+    }
+
+    char filter[64];
+    std::snprintf(filter, sizeof filter, "rubberband=pitch-scale=%.6f", std::pow(2.0, pitch_ / 12.0));
+    mpv().set_property_string(mpv_, "af", filter);
 }
 
 void MpvPlayer::applyVolumeAndSpeed()

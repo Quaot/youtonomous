@@ -26,4 +26,10 @@ public:
     virtual int volume() const = 0;
     virtual void setSpeed(double rate) = 0;
     virtual double speed() const = 0;
+
+    virtual bool pitchSupported() const = 0;
+    virtual void setPitch(int semitones) = 0;
+    virtual int pitch() const = 0;
+    virtual void setKeepPitch(bool keep) = 0;
+    virtual bool keepPitch() const = 0;
 };

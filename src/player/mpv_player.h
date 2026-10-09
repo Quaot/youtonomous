@@ -33,9 +33,16 @@ public:
     void setSpeed(double rate) override;
     double speed() const override { return speed_; }
 
+    bool pitchSupported() const override { return true; }
+    void setPitch(int semitones) override;
+    int pitch() const override { return pitch_; }
+    void setKeepPitch(bool keep) override;
+    bool keepPitch() const override { return keep_pitch_; }
+
 private:
     void initialize();
     void applyVolumeAndSpeed();
+    void applyPitch();
     void drainEvents() const;
     bool flag(const char* name) const;
     double number(const char* name) const;
@@ -46,4 +53,6 @@ private:
     bool loaded_ = false;
     int volume_ = 100;
     double speed_ = 1.0;
+    int pitch_ = 0;
+    bool keep_pitch_ = true;
 };

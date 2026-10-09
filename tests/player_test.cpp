@@ -68,6 +68,23 @@ static bool same(double value, double expected)
     return std::fabs(value - expected) < 0.001;
 }
 
+static std::string flag(bool value)
+{
+    return value ? "true" : "false";
+}
+
+static int pitchAfter(bool supported, int semitones)
+{
+    if (!supported)
+        return 0;
+    return std::max(-6, std::min(6, semitones));
+}
+
+static bool keepAfter(bool supported, bool keep)
+{
+    return supported ? keep : true;
+}
+
 static bool runProcess(const std::wstring& command_line, int milliseconds)
 {
     STARTUPINFOW startup = {};
@@ -125,6 +142,77 @@ static void testNothingOpen()
     check(player.length() == 0, "length() stays 0 after seek and skip with nothing open, got " + num(player.length()));
     player.togglePause();
     check(!player.playing(), "playing() stays false after a second togglePause with nothing open");
+}
+
+static void testPitchWithNothingOpen()
+{
+    auto owned = makePlayer(backend);
+    Player& player = *owned;
+    bool supported = player.pitchSupported();
+    auto other_owned = makePlayer(backend);
+    check(other_owned->pitchSupported() == supported,
+          "two players from backend " + backend + " agree on pitchSupported(), got " + flag(supported) + " and " + flag(other_owned->pitchSupported()));
+
+    check(player.pitch() == 0, "pitch() is 0 on a new player, got " + num(player.pitch()));
+    check(player.keepPitch(), "keepPitch() is true on a new player, got " + flag(player.keepPitch()));
+
+    player.attach(video_window);
+    player.setPitch(3);
+    check(player.pitch() == pitchAfter(supported, 3),
+          "setPitch(3) with nothing open gives " + num(pitchAfter(supported, 3)) + ", got " + num(player.pitch()));
+    player.setPitch(-3);
+    check(player.pitch() == pitchAfter(supported, -3),
+          "setPitch(-3) with nothing open gives " + num(pitchAfter(supported, -3)) + ", got " + num(player.pitch()));
+    player.setPitch(6);
+    check(player.pitch() == pitchAfter(supported, 6),
+          "setPitch(6) with nothing open gives " + num(pitchAfter(supported, 6)) + ", got " + num(player.pitch()));
+    player.setPitch(-6);
+    check(player.pitch() == pitchAfter(supported, -6),
+          "setPitch(-6) with nothing open gives " + num(pitchAfter(supported, -6)) + ", got " + num(player.pitch()));
+    player.setPitch(7);
+    check(player.pitch() == pitchAfter(supported, 7),
+          "setPitch(7) clamps to " + num(pitchAfter(supported, 7)) + ", got " + num(player.pitch()));
+    player.setPitch(-7);
+    check(player.pitch() == pitchAfter(supported, -7),
+          "setPitch(-7) clamps to " + num(pitchAfter(supported, -7)) + ", got " + num(player.pitch()));
+    player.setPitch(100);
+    check(player.pitch() == pitchAfter(supported, 100),
+          "setPitch(100) clamps to " + num(pitchAfter(supported, 100)) + ", got " + num(player.pitch()));
+    player.setPitch(std::numeric_limits<int>::max());
+    check(player.pitch() == pitchAfter(supported, std::numeric_limits<int>::max()),
+          "setPitch(INT_MAX) clamps to " + num(pitchAfter(supported, std::numeric_limits<int>::max())) + ", got " + num(player.pitch()));
+    player.setPitch(std::numeric_limits<int>::min());
+    check(player.pitch() == pitchAfter(supported, std::numeric_limits<int>::min()),
+          "setPitch(INT_MIN) clamps to " + num(pitchAfter(supported, std::numeric_limits<int>::min())) + ", got " + num(player.pitch()));
+    player.setPitch(0);
+    check(player.pitch() == 0, "setPitch(0) with nothing open gives 0, got " + num(player.pitch()));
+
+    player.setKeepPitch(false);
+    check(player.keepPitch() == keepAfter(supported, false),
+          "setKeepPitch(false) with nothing open gives " + flag(keepAfter(supported, false)) + ", got " + flag(player.keepPitch()));
+    player.setKeepPitch(true);
+    check(player.keepPitch(), "setKeepPitch(true) with nothing open gives true, got " + flag(player.keepPitch()));
+    player.setKeepPitch(false);
+    player.setKeepPitch(false);
+    check(player.keepPitch() == keepAfter(supported, false),
+          "setKeepPitch(false) twice with nothing open gives " + flag(keepAfter(supported, false)) + ", got " + flag(player.keepPitch()));
+    player.setKeepPitch(true);
+
+    player.setSpeed(1.5);
+    player.setPitch(4);
+    check(same(player.speed(), 1.5), "setPitch(4) leaves speed() at 1.5, got " + dec(player.speed()));
+    int pitch_before = player.pitch();
+    player.setSpeed(0.5);
+    check(player.pitch() == pitch_before,
+          "setSpeed(0.5) leaves pitch() at " + num(pitch_before) + ", got " + num(player.pitch()));
+    player.setSpeed(1.0);
+
+    check(player.pitchSupported() == supported,
+          "pitchSupported() stays " + flag(supported) + " after setting pitch and speed, got " + flag(player.pitchSupported()));
+    Sleep(300);
+    check(!player.playing(), "playing() stays false after setPitch and setKeepPitch with nothing open");
+    check(player.time() == 0 && player.length() == 0,
+          "setPitch and setKeepPitch with nothing open do not crash, time " + num(player.time()) + " length " + num(player.length()));
 }
 
 static void testVolumeAndSpeedWithNothingOpen()
@@ -365,6 +453,134 @@ static void testReopen(const fs::path& folder)
           "opening the clip again at 5 restarts at 5, got " + num(player.time()));
 }
 
+static void testPitchWithMissingFile(const fs::path& folder)
+{
+    auto owned = makePlayer(backend);
+    Player& player = *owned;
+    bool supported = player.pitchSupported();
+    player.attach(video_window);
+    player.open((folder / "does-not-exist" / "missing.mp4").u8string(), 0);
+    player.setPitch(3);
+    player.setKeepPitch(false);
+    check(player.pitch() == pitchAfter(supported, 3),
+          "setPitch(3) right after opening a non-existent file gives " + num(pitchAfter(supported, 3)) + ", got " + num(player.pitch()));
+    check(player.keepPitch() == keepAfter(supported, false),
+          "setKeepPitch(false) right after opening a non-existent file gives " + flag(keepAfter(supported, false)) + ", got " + flag(player.keepPitch()));
+
+    waitFor([&] { return !player.playing(); }, 5000);
+    Sleep(500);
+    player.setPitch(100);
+    player.setKeepPitch(true);
+    check(player.pitch() == pitchAfter(supported, 100),
+          "setPitch(100) after a failed open gives " + num(pitchAfter(supported, 100)) + ", got " + num(player.pitch()));
+    check(player.keepPitch(), "setKeepPitch(true) after a failed open gives true, got " + flag(player.keepPitch()));
+    check(player.pitchSupported() == supported,
+          "pitchSupported() stays " + flag(supported) + " after a failed open, got " + flag(player.pitchSupported()));
+    Sleep(300);
+    check(player.time() >= 0 && player.length() >= 0,
+          "setPitch and setKeepPitch after opening a non-existent file do not crash, time " + num(player.time()) + " length " + num(player.length()));
+}
+
+static void testPitchWhilePlaying()
+{
+    auto owned = makePlayer(backend);
+    Player& player = *owned;
+    bool supported = player.pitchSupported();
+    check(startPlaying(player, 0), "clip plays for the pitch tests");
+    check(player.pitch() == 0, "pitch() is 0 on a freshly opened clip, got " + num(player.pitch()));
+    check(player.keepPitch(), "keepPitch() is true on a freshly opened clip, got " + flag(player.keepPitch()));
+
+    player.setPitch(4);
+    check(player.pitch() == pitchAfter(supported, 4),
+          "setPitch(4) while playing gives " + num(pitchAfter(supported, 4)) + " right away, got " + num(player.pitch()));
+    check(player.playing(), "playing() stays true right after setPitch(4) while playing");
+    player.setPitch(9);
+    check(player.pitch() == pitchAfter(supported, 9),
+          "setPitch(9) while playing clamps to " + num(pitchAfter(supported, 9)) + ", got " + num(player.pitch()));
+    player.setPitch(-9);
+    check(player.pitch() == pitchAfter(supported, -9),
+          "setPitch(-9) while playing clamps to " + num(pitchAfter(supported, -9)) + ", got " + num(player.pitch()));
+    player.setKeepPitch(false);
+    check(player.keepPitch() == keepAfter(supported, false),
+          "setKeepPitch(false) while playing gives " + flag(keepAfter(supported, false)) + " right away, got " + flag(player.keepPitch()));
+    check(player.playing(), "playing() stays true right after setKeepPitch(false) while playing");
+    player.setKeepPitch(true);
+    check(player.keepPitch(), "setKeepPitch(true) while playing gives true right away, got " + flag(player.keepPitch()));
+
+    bool stayed_playing = true;
+    watch([&] { if (!player.playing()) stayed_playing = false; }, 1000);
+    check(stayed_playing, "playing() stays true after changing pitch and the keep-pitch setting while playing");
+    int before = player.time();
+    check(waitFor([&] { return player.time() >= before + 1; }, 4000),
+          "time() keeps advancing after changing pitch, stuck at " + num(player.time()));
+
+    double speed_before = player.speed();
+    player.setPitch(2);
+    check(same(player.speed(), speed_before),
+          "setPitch(2) while playing leaves speed() at " + dec(speed_before) + ", got " + dec(player.speed()));
+    int pitch_before = player.pitch();
+    player.setSpeed(1.5);
+    check(player.pitch() == pitch_before,
+          "setSpeed(1.5) while playing leaves pitch() at " + num(pitch_before) + ", got " + num(player.pitch()));
+    check(player.pitchSupported() == supported,
+          "pitchSupported() stays " + flag(supported) + " while playing, got " + flag(player.pitchSupported()));
+}
+
+static void testPitchAcrossReopen(const fs::path& folder)
+{
+    fs::path other = folder / "pitch-other.mp4";
+    std::error_code error;
+    fs::copy_file(fs::u8path(clip), other, fs::copy_options::overwrite_existing, error);
+    check(!error && fs::exists(other), "a second copy of the clip is made for the pitch reopen tests");
+
+    auto owned = makePlayer(backend);
+    Player& player = *owned;
+    bool supported = player.pitchSupported();
+    player.setPitch(5);
+    player.setKeepPitch(false);
+    player.attach(video_window);
+    player.open(clip, 0);
+    check(player.pitch() == pitchAfter(supported, 5),
+          "pitch() set to 5 before open is " + num(pitchAfter(supported, 5)) + " right after open, got " + num(player.pitch()));
+    check(player.keepPitch() == keepAfter(supported, false),
+          "keepPitch() set to false before open is " + flag(keepAfter(supported, false)) + " right after open, got " + flag(player.keepPitch()));
+    check(waitFor([&] { return player.playing() && player.length() > 0; }, 10000), "clip plays after setting pitch before open");
+    check(player.pitch() == pitchAfter(supported, 5),
+          "pitch() set to 5 before open is " + num(pitchAfter(supported, 5)) + " while playing, got " + num(player.pitch()));
+    check(player.keepPitch() == keepAfter(supported, false),
+          "keepPitch() set to false before open is " + flag(keepAfter(supported, false)) + " while playing, got " + flag(player.keepPitch()));
+
+    player.setPitch(-4);
+    player.setKeepPitch(true);
+    player.seek(20);
+    waitFor([&] { return player.time() >= 20; }, 5000);
+    player.open(other.u8string(), 0);
+    check(player.pitch() == pitchAfter(supported, -4),
+          "pitch() stays " + num(pitchAfter(supported, -4)) + " right after opening another file, got " + num(player.pitch()));
+    check(player.keepPitch(), "keepPitch() stays true right after opening another file, got " + flag(player.keepPitch()));
+    check(waitFor([&] { return player.playing() && player.length() > 0 && player.time() <= 5; }, 10000),
+          "another file plays from the start for the pitch tests, got " + num(player.time()));
+    check(player.pitch() == pitchAfter(supported, -4),
+          "pitch() stays " + num(pitchAfter(supported, -4)) + " while another file plays, got " + num(player.pitch()));
+    check(player.keepPitch(), "keepPitch() stays true while another file plays, got " + flag(player.keepPitch()));
+
+    player.setPitch(6);
+    player.setKeepPitch(false);
+    player.seek(20);
+    waitFor([&] { return player.time() >= 20; }, 5000);
+    player.open(other.u8string(), 0);
+    check(player.pitch() == pitchAfter(supported, 6),
+          "pitch() stays " + num(pitchAfter(supported, 6)) + " right after opening the same file again, got " + num(player.pitch()));
+    check(player.keepPitch() == keepAfter(supported, false),
+          "keepPitch() stays " + flag(keepAfter(supported, false)) + " right after opening the same file again, got " + flag(player.keepPitch()));
+    check(waitFor([&] { return player.playing() && player.time() <= 5; }, 10000),
+          "the same file plays again from the start for the pitch tests, got " + num(player.time()));
+    check(player.pitch() == pitchAfter(supported, 6),
+          "pitch() stays " + num(pitchAfter(supported, 6)) + " while the same file plays again, got " + num(player.pitch()));
+    check(player.keepPitch() == keepAfter(supported, false),
+          "keepPitch() stays " + flag(keepAfter(supported, false)) + " while the same file plays again, got " + flag(player.keepPitch()));
+}
+
 static void testVolumeAndSpeedWithMissingFile(const fs::path& folder)
 {
     auto owned = makePlayer(backend);
@@ -514,6 +730,7 @@ int main(int argc, char** argv)
 
     int result = 0;
     testNothingOpen();
+    testPitchWithNothingOpen();
     testVolumeAndSpeedWithNothingOpen();
     bool ready = makePlayer(backend)->ready();
     if (!ready) {
@@ -531,6 +748,9 @@ int main(int argc, char** argv)
             testSkip();
             testPause();
             testReopen(folder);
+            testPitchWithMissingFile(folder);
+            testPitchWhilePlaying();
+            testPitchAcrossReopen(folder);
             testVolumeAndSpeedWithMissingFile(folder);
             testVolumeAndSpeedBeforeOpen();
             testSpeedPlayback();

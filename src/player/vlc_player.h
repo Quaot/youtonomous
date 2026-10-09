@@ -31,6 +31,13 @@ public:
     void setSpeed(double rate) override;
     double speed() const override { return speed_; }
 
+    // libvlc gives no way to reach the pitch of its scaletempo filter.
+    bool pitchSupported() const override { return false; }
+    void setPitch(int) override {}
+    int pitch() const override { return 0; }
+    void setKeepPitch(bool) override {}
+    bool keepPitch() const override { return true; }
+
 private:
     void applyVolumeAndSpeed();
 
