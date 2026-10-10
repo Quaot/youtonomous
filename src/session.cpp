@@ -1,0 +1,87 @@
+#include "session.h"
+
+#include <algorithm>
+#include <cctype>
+
+static bool isRest(const std::string& label)
+{
+    std::string lower;
+    for (char c : label)
+        lower += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return lower.find("break") != std::string::npos;
+}
+
+std::vector<Block> blocksOf(const Video& video)
+{
+    std::vector<Block> blocks;
+    if (video.duration <= 0)
+        return blocks;
+
+    std::vector<Bookmark> chapters;
+    for (const Bookmark& mark : video.marks) {
+        if (mark.chapter)
+            chapters.push_back(mark);
+    }
+    std::stable_sort(chapters.begin(), chapters.end(),
+                     [](const Bookmark& a, const Bookmark& b) { return a.time < b.time; });
+
+    for (size_t i = 0; i < chapters.size(); ++i) {
+        int start = chapters[i].time;
+        int end = i + 1 < chapters.size() ? chapters[i + 1].time : video.duration;
+        if (end <= start)
+            continue;
+        blocks.push_back({chapters[i].label, start, end, isRest(chapters[i].label)});
+    }
+    return blocks;
+}
+
+int blockAt(const std::vector<Block>& blocks, int position)
+{
+    for (size_t i = 0; i < blocks.size(); ++i) {
+        if (position >= blocks[i].start && position < blocks[i].end)
+            return static_cast<int>(i);
+    }
+    return -1;
+}
+
+SessionAdvice advance(SessionState& state, const std::vector<Block>& blocks, int position, double seconds, bool playing)
+{
+    SessionAdvice advice;
+    if (blocks.empty())
+        return advice;
+
+    int count = static_cast<int>(blocks.size());
+    if (state.block < 0 || state.block >= count) {
+        state.block = blockAt(blocks, position);
+        state.elapsed = 0;
+    }
+    if (state.block < 0 || !playing)
+        return advice;
+
+    state.elapsed += std::max(0.0, seconds);
+
+    const Block& block = blocks[state.block];
+    double length = block.end - block.start;
+    if (state.elapsed >= length) {
+        advice.block_done = true;
+        state.elapsed = 0;
+        state.block = state.block + 1 < count ? state.block + 1 : -1;
+        if (state.block >= 0)
+            advice.seek_to = blocks[state.block].start;
+        return advice;
+    }
+
+    if (position >= block.end - 1)
+        advice.seek_to = block.start;
+    return advice;
+}
+
+int remaining(const SessionState& state, const std::vector<Block>& blocks)
+{
+    if (state.block < 0 || state.block >= static_cast<int>(blocks.size()))
+        return 0;
+
+    const Block& block = blocks[state.block];
+    double left = (block.end - block.start) - state.elapsed;
+    return left > 0 ? static_cast<int>(left) : 0;
+}
