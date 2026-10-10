@@ -3,12 +3,12 @@
 #include <algorithm>
 #include <cctype>
 
-static bool isRest(const std::string& label)
+static std::string lowerCase(const std::string& text)
 {
     std::string lower;
-    for (char c : label)
+    for (char c : text)
         lower += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return lower.find("break") != std::string::npos;
+    return lower;
 }
 
 std::vector<Block> blocksOf(const Video& video)
@@ -26,11 +26,15 @@ std::vector<Block> blocksOf(const Video& video)
                      [](const Bookmark& a, const Bookmark& b) { return a.time < b.time; });
 
     for (size_t i = 0; i < chapters.size(); ++i) {
+        std::string label = lowerCase(chapters[i].label);
+        if (label.find("intro") != std::string::npos || label.find("outro") != std::string::npos)
+            continue;
+
         int start = chapters[i].time;
         int end = i + 1 < chapters.size() ? chapters[i + 1].time : video.duration;
         if (end <= start)
             continue;
-        blocks.push_back({chapters[i].label, start, end, isRest(chapters[i].label)});
+        blocks.push_back({chapters[i].label, start, end, label.find("break") != std::string::npos});
     }
     return blocks;
 }
@@ -71,7 +75,7 @@ SessionAdvice advance(SessionState& state, const std::vector<Block>& blocks, int
         return advice;
     }
 
-    if (position >= block.end - 1)
+    if (position >= block.end - 1 && length - state.elapsed > 1)
         advice.seek_to = block.start;
     return advice;
 }
