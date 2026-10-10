@@ -81,6 +81,15 @@ int VlcPlayer::time() const
 
     // For about half a second after a seek VLC reports zero, or the time it
     // held before the seek, so follow the expected position until it settles.
+    // While paused its clock can stay stale for as long as the pause lasts.
+    if (!playing()) {
+        if (std::abs(now - seek_target_) <= 1) {
+            seek_target_ = -1;
+            return now;
+        }
+        return seek_target_;
+    }
+
     double elapsed = (GetTickCount64() - seek_tick_) / 1000.0;
     if (elapsed > 2.0) {
         seek_target_ = -1;
