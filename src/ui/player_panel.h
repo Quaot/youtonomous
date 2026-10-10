@@ -1,5 +1,6 @@
 #pragma once
 
+#include <string>
 #include <vector>
 
 #include <windows.h>
@@ -24,6 +25,8 @@ public:
     void showSpeed(double rate);
     double speedSetting() const;
 
+    void showSession(const std::wstring& block, const std::wstring& totals);
+
     void setPitchAvailable(bool available);
     void showPitch(int semitones);
     int pitchSetting() const;
@@ -45,6 +48,8 @@ private:
     HWND pitch_box_ = nullptr;
     HWND keep_pitch_box_ = nullptr;
     HWND volume_bar_ = nullptr;
+    HWND session_label_ = nullptr;
+    HWND totals_label_ = nullptr;
     bool fullscreen_ = false;
     bool keep_pitch_shown_ = true;
 };

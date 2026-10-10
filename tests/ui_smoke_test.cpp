@@ -424,6 +424,24 @@ static void secondRun(const std::wstring& command_line, std::wstring& environmen
         check(SendMessageW(keep_pitch, BM_GETCHECK, 0, 0) == BST_UNCHECKED, "the saved keep pitch setting is shown after a restart");
     check(volumeShown(top) == 40, "the saved volume is shown after a restart" + got(volumeShown(top)));
 
+    check(waitFor([&] { return labelStartingWith(top, L"Pomodoro 1") != L""; }, 5000),
+          "the session row names the block the video opens in");
+    fs::path study_file = library_file.parent_path() / "study.json";
+    auto studied = [&] {
+        nlohmann::json entries = nlohmann::json::parse(std::ifstream(study_file), nullptr, false);
+        if (!entries.is_array())
+            return 0;
+        int seconds = 0;
+        for (const nlohmann::json& entry : entries) {
+            if (entry.is_object() && entry.value("label", "") == "Pomodoro 1")
+                seconds += entry.value("seconds", 0);
+        }
+        return seconds;
+    };
+    check(waitFor([&] { return studied() >= 4; }, 20000), "a finished work block is logged" + got(studied()));
+    check(studied() <= 10, "the logged block counts real time, not sped-up time" + got(studied()));
+    check(labelStartingWith(top, L"Studied today") != L"", "the totals line is shown");
+
     std::wstring start_label = labelStartingWith(top, L"Start at");
     check(start_label.find(L"last stopped at") != std::wstring::npos, "the start label shows where playback stopped");
     key(top, 'R');
@@ -491,6 +509,14 @@ int main(int argc, char** argv)
     settings["window_width"] = 1000;
     settings["window_height"] = 700;
     settings["maximized"] = false;
+    nlohmann::json library = nlohmann::json::parse(std::ifstream(library_file), nullptr, false);
+    check(library.is_array() && !library.empty(), "the library holds the clip before the second run");
+    if (library.is_array() && !library.empty()) {
+        library[0]["marks"].push_back({{"time", 18}, {"label", "Pomodoro 1"}, {"chapter", true}, {"note", ""}});
+        library[0]["marks"].push_back({{"time", 24}, {"label", "Break 1"}, {"chapter", true}, {"note", ""}});
+        std::ofstream(library_file) << library.dump();
+    }
+
     settings["backend"] = "mpv";
     settings["pitch"] = 2;
     settings["keep_pitch"] = false;

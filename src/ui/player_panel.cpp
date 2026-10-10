@@ -52,6 +52,8 @@ void PlayerPanel::create(const Context& context)
         SendMessageW(pitch_box_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(name));
 
     keep_pitch_box_ = addControl(context, L"BUTTON", L"Keep pitch", BS_AUTOCHECKBOX, kKeepPitch);
+    session_label_ = addControl(context, L"STATIC", L"", SS_LEFT | SS_CENTERIMAGE, 0);
+    totals_label_ = addControl(context, L"STATIC", L"", SS_RIGHT | SS_CENTERIMAGE, 0);
 
     volume_bar_ = addControl(context, TRACKBAR_CLASSW, L"", TBS_HORZ | TBS_NOTICKS, kVolume);
     SendMessageW(volume_bar_, TBM_SETRANGEMIN, FALSE, 0);
@@ -75,8 +77,11 @@ void PlayerPanel::layout(int width, int height)
     int center_width = std::max(0, width - kSide * 2 - kPad * 4);
     int right = left + center_width;
     int seek_y = bottom - kPad - kSeekHeight;
+    int session_y = seek_y - kGap - kLabel;
 
-    MoveWindow(video_, left, kPad, center_width, std::max(0, seek_y - kPad * 2), TRUE);
+    MoveWindow(video_, left, kPad, center_width, std::max(0, session_y - kPad * 2), TRUE);
+    MoveWindow(session_label_, left, session_y, center_width / 2, kLabel, TRUE);
+    MoveWindow(totals_label_, left + center_width / 2, session_y, center_width - center_width / 2, kLabel, TRUE);
     MoveWindow(seekbar_, left, seek_y, center_width, kSeekHeight, TRUE);
 
     int x = left;
@@ -111,7 +116,7 @@ void PlayerPanel::setFullscreen(bool fullscreen)
 {
     fullscreen_ = fullscreen;
     ui::setVisible({seekbar_, prev_mark_, back30_, back10_, play_button_, forward10_, forward30_, next_mark_,
-                    time_label_, speed_box_, pitch_box_, volume_bar_},
+                    time_label_, speed_box_, pitch_box_, volume_bar_, session_label_, totals_label_},
                    !fullscreen);
     ShowWindow(keep_pitch_box_, !fullscreen && keep_pitch_shown_ ? SW_SHOW : SW_HIDE);
 }
@@ -156,6 +161,12 @@ double PlayerPanel::speedSetting() const
     if (index < 0 || index >= kSpeedCount)
         return 1.0;
     return kSpeeds[index];
+}
+
+void PlayerPanel::showSession(const std::wstring& block, const std::wstring& totals)
+{
+    setText(session_label_, block);
+    setText(totals_label_, totals);
 }
 
 void PlayerPanel::setPitchAvailable(bool available)

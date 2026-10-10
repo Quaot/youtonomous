@@ -1,6 +1,7 @@
 #include "main_window.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <cstdlib>
 #include <memory>
 
@@ -44,7 +45,17 @@ MainWindow::MainWindow()
     , videos_folder_(videosFolder(settings_))
     , library_(folderFromEnv(L"APPDATA") / L"Youtonomous" / L"library.json")
     , player_(makePlayer(settings_.backend))
+    , study_file_(folderFromEnv(L"APPDATA") / L"Youtonomous" / L"study.json")
 {
+}
+
+static std::string today()
+{
+    SYSTEMTIME now{};
+    GetLocalTime(&now);
+    char text[16];
+    std::snprintf(text, sizeof text, "%04d-%02d-%02d", now.wYear, now.wMonth, now.wDay);
+    return text;
 }
 
 bool MainWindow::create(HINSTANCE instance, int show)
@@ -171,6 +182,7 @@ LRESULT MainWindow::handle(UINT msg, WPARAM w_param, LPARAM l_param)
         createControls();
         library_.load();
         refreshLibrary();
+        refreshTotals();
         SetTimer(hwnd_, kTimer, 250, nullptr);
         if (!player_->ready()) {
             std::wstring message = L"Could not start the " + widen(settings_.backend) + L" player.";
@@ -205,6 +217,7 @@ LRESULT MainWindow::handle(UINT msg, WPARAM w_param, LPARAM l_param)
         onDownloadDone(reinterpret_cast<DownloadResult*>(l_param));
         return 0;
     case WM_DESTROY:
+        recordStudy(currentBlockLabel());
         rememberPosition();
         saveSettingsOnClose();
         KillTimer(hwnd_, kTimer);
@@ -320,6 +333,87 @@ void MainWindow::onCommand(int id, int code)
 void MainWindow::tick()
 {
     player_panel_.show(player_->time(), player_->length(), player_->playing());
+    updateSession();
+}
+
+void MainWindow::updateSession()
+{
+    unsigned long long now = GetTickCount64();
+    double seconds = last_tick_ == 0 ? 0 : (now - last_tick_) / 1000.0;
+    last_tick_ = now;
+
+    // A video opened from a file has no duration until the player reports one.
+    Video* video = current();
+    if (video && video->duration <= 0 && player_->length() > 0) {
+        video->duration = player_->length();
+        library_.save();
+        blocks_ = blocksOf(*video);
+        session_ = SessionState{};
+    }
+
+    if (blocks_.empty()) {
+        player_panel_.showSession(L"", totalsText());
+        return;
+    }
+
+    bool playing = player_->playing();
+    int started_in = session_.block;
+    bool working = playing && started_in >= 0 && started_in < static_cast<int>(blocks_.size()) && !blocks_[started_in].rest;
+    if (working)
+        block_studied_ += seconds;
+
+    std::string finished = currentBlockLabel();
+    SessionAdvice advice = advance(session_, blocks_, player_->time(), seconds, playing);
+    if (advice.block_done)
+        recordStudy(finished);
+    if (advice.seek_to >= 0)
+        player_->seek(advice.seek_to);
+
+    std::wstring text;
+    if (session_.block >= 0 && session_.block < static_cast<int>(blocks_.size())) {
+        const Block& block = blocks_[session_.block];
+        text = widen(block.label + "   " + timecode::format(remaining(session_, blocks_)) + " left");
+    }
+    player_panel_.showSession(text, totalsText());
+}
+
+std::string MainWindow::currentBlockLabel() const
+{
+    if (session_.block < 0 || session_.block >= static_cast<int>(blocks_.size()))
+        return "";
+    return blocks_[session_.block].label;
+}
+
+void MainWindow::recordStudy(const std::string& label)
+{
+    int seconds = static_cast<int>(block_studied_);
+    block_studied_ = 0;
+    if (seconds <= 0 || current_id_.empty())
+        return;
+
+    StudyEntry entry;
+    entry.day = today();
+    entry.video_id = current_id_;
+    entry.label = label;
+    entry.seconds = seconds;
+    entry.speed = player_->speed();
+    entry.pitch = player_->pitch();
+    appendStudy(entry, study_file_);
+    refreshTotals();
+}
+
+void MainWindow::refreshTotals()
+{
+    std::vector<StudyEntry> entries = loadStudy(study_file_);
+    studied_total_ = totalSeconds(entries);
+    studied_today_ = secondsOnDay(entries, today());
+}
+
+std::wstring MainWindow::totalsText() const
+{
+    int today_seconds = studied_today_ + static_cast<int>(block_studied_);
+    int total = studied_total_ + static_cast<int>(block_studied_);
+    return widen("Studied today " + timecode::format(today_seconds) + "   all time " + timecode::format(total));
 }
 
 void MainWindow::openFile()
@@ -431,9 +525,15 @@ void MainWindow::openVideo(const std::string& id)
         return;
     }
 
+    recordStudy(currentBlockLabel());
     rememberPosition();
     current_id_ = id;
     player_->open(found->file, found->start);
+
+    blocks_ = blocksOf(*found);
+    session_ = SessionState{};
+    block_studied_ = 0;
+    last_tick_ = GetTickCount64();
 
     const auto& videos = library_.videos();
     for (size_t i = 0; i < videos.size(); ++i) {

@@ -12,7 +12,9 @@
 #include "make_player.h"
 #include "marks_panel.h"
 #include "player_panel.h"
+#include "session.h"
 #include "settings.h"
+#include "study_log.h"
 
 class MainWindow {
 public:
@@ -59,6 +61,12 @@ private:
     void rememberPosition();
     void resume();
 
+    void updateSession();
+    void recordStudy(const std::string& label);
+    std::string currentBlockLabel() const;
+    void refreshTotals();
+    std::wstring totalsText() const;
+
     HWND hwnd_ = nullptr;
     HINSTANCE instance_ = nullptr;
     HFONT font_ = nullptr;
@@ -79,4 +87,12 @@ private:
     std::string current_id_;
     int editing_mark_ = -1;
     bool downloading_ = false;
+
+    std::filesystem::path study_file_;
+    std::vector<Block> blocks_;
+    SessionState session_;
+    unsigned long long last_tick_ = 0;
+    double block_studied_ = 0;
+    int studied_today_ = 0;
+    int studied_total_ = 0;
 };
