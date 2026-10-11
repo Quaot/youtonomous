@@ -54,6 +54,9 @@ static Settings fromJson(const json& item)
     if (item.contains("keep_pitch") && item["keep_pitch"].is_boolean())
         settings.keep_pitch = item["keep_pitch"].get<bool>();
 
+    if (item.contains("silence_work") && item["silence_work"].is_boolean())
+        settings.silence_work = item["silence_work"].get<bool>();
+
     if (item.contains("speed") && item["speed"].is_number()) {
         double speed = item["speed"].get<double>();
         settings.speed = std::isfinite(speed) ? std::clamp(speed, 0.5, 2.0) : defaults.speed;
@@ -91,7 +94,8 @@ bool saveSettings(const Settings& settings, const std::filesystem::path& file)
             {"volume", settings.volume},
             {"speed", settings.speed},
             {"pitch", settings.pitch},
-            {"keep_pitch", settings.keep_pitch}};
+            {"keep_pitch", settings.keep_pitch},
+            {"silence_work", settings.silence_work}};
 
         std::error_code error;
         std::filesystem::create_directories(file.parent_path(), error);

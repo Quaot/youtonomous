@@ -15,6 +15,9 @@ struct Block {
 struct SessionState {
     int block = -1;
     double elapsed = 0;
+    int resume_block = -1;
+    double resume_elapsed = 0;
+    int resume_position = 0;
 };
 
 struct SessionAdvice {
@@ -25,4 +28,6 @@ struct SessionAdvice {
 std::vector<Block> blocksOf(const Video& video);
 int blockAt(const std::vector<Block>& blocks, int position);
 SessionAdvice advance(SessionState& state, const std::vector<Block>& blocks, int position, double seconds, bool playing);
+SessionAdvice skip(SessionState& state, const std::vector<Block>& blocks, int position, bool bank);
 int remaining(const SessionState& state, const std::vector<Block>& blocks);
+int sessionVolume(const SessionState& state, const std::vector<Block>& blocks, bool silence_work, int wanted);

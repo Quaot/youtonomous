@@ -27,6 +27,9 @@ public:
 
     void showSession(const std::wstring& block, const std::wstring& totals);
 
+    void showSilence(bool silence);
+    bool silenceSetting() const;
+
     void setPitchAvailable(bool available);
     void showPitch(int semitones);
     int pitchSetting() const;
@@ -43,6 +46,7 @@ private:
     HWND forward10_ = nullptr;
     HWND forward30_ = nullptr;
     HWND next_mark_ = nullptr;
+    HWND break_button_ = nullptr;
     HWND time_label_ = nullptr;
     HWND speed_box_ = nullptr;
     HWND pitch_box_ = nullptr;
@@ -50,6 +54,7 @@ private:
     HWND volume_bar_ = nullptr;
     HWND session_label_ = nullptr;
     HWND totals_label_ = nullptr;
+    HWND silence_box_ = nullptr;
     bool fullscreen_ = false;
     bool keep_pitch_shown_ = true;
 };

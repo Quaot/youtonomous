@@ -62,8 +62,12 @@ private:
     void resume();
 
     void updateSession();
+    void skipToBreak();
+    void applyVolume();
     void recordStudy(const std::string& label);
     std::string currentBlockLabel() const;
+    bool currentBlockIsRest() const;
+    std::string studyLabel() const;
     void refreshTotals();
     std::wstring totalsText() const;
 
@@ -95,4 +99,6 @@ private:
     double block_studied_ = 0;
     int studied_today_ = 0;
     int studied_total_ = 0;
+    int wanted_volume_ = 100;
+    int applied_volume_ = -1;
 };

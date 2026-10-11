@@ -126,7 +126,7 @@ void MainWindow::saveSettingsOnClose()
     settings_.window_width = rect.right - rect.left;
     settings_.window_height = rect.bottom - rect.top;
     settings_.maximized = placement.showCmd == SW_SHOWMAXIMIZED;
-    settings_.volume = player_->volume();
+    settings_.volume = wanted_volume_;
     settings_.speed = player_->speed();
     if (player_->pitchSupported()) {
         settings_.pitch = player_->pitch();
@@ -196,8 +196,10 @@ LRESULT MainWindow::handle(UINT msg, WPARAM w_param, LPARAM l_param)
         onCommand(LOWORD(w_param), HIWORD(w_param));
         return 0;
     case WM_HSCROLL:
-        if (player_panel_.isVolumeBar(reinterpret_cast<HWND>(l_param)))
-            player_->setVolume(player_panel_.volumeSetting());
+        if (player_panel_.isVolumeBar(reinterpret_cast<HWND>(l_param))) {
+            wanted_volume_ = player_panel_.volumeSetting();
+            applyVolume();
+        }
         return 0;
     case WM_TIMER:
         tick();
@@ -217,7 +219,7 @@ LRESULT MainWindow::handle(UINT msg, WPARAM w_param, LPARAM l_param)
         onDownloadDone(reinterpret_cast<DownloadResult*>(l_param));
         return 0;
     case WM_DESTROY:
-        recordStudy(currentBlockLabel());
+        recordStudy(studyLabel());
         rememberPosition();
         saveSettingsOnClose();
         KillTimer(hwnd_, kTimer);
@@ -241,12 +243,14 @@ void MainWindow::createControls()
     marks_panel_.create(context);
 
     player_->attach(player_panel_.videoWindow());
+    wanted_volume_ = settings_.volume;
     player_->setVolume(settings_.volume);
     player_->setSpeed(settings_.speed);
     player_->setKeepPitch(settings_.keep_pitch);
     player_->setPitch(settings_.pitch);
 
     player_panel_.showVolume(player_->volume());
+    player_panel_.showSilence(settings_.silence_work);
     player_panel_.showSpeed(player_->speed());
     player_panel_.setPitchAvailable(player_->pitchSupported());
     player_panel_.showPitch(player_->pitchSupported() ? player_->pitch() : settings_.pitch);
@@ -301,6 +305,13 @@ void MainWindow::onCommand(int id, int code)
         if (code == BN_CLICKED)
             player_->setKeepPitch(player_panel_.keepPitchSetting());
         break;
+    case kBreak: skipToBreak(); break;
+    case kSilence:
+        if (code == BN_CLICKED) {
+            settings_.silence_work = player_panel_.silenceSetting();
+            applyVolume();
+        }
+        break;
     case kVideo:
         if (code == STN_DBLCLK)
             setFullscreen(!fullscreen_);
@@ -352,6 +363,7 @@ void MainWindow::updateSession()
     }
 
     if (blocks_.empty()) {
+        applyVolume();
         player_panel_.showSession(L"", totalsText());
         return;
     }
@@ -363,11 +375,13 @@ void MainWindow::updateSession()
         block_studied_ += seconds;
 
     std::string finished = currentBlockLabel();
+    bool finished_rest = currentBlockIsRest();
     SessionAdvice advice = advance(session_, blocks_, player_->time(), seconds, playing);
-    if (advice.block_done)
+    if (advice.block_done && !finished_rest)
         recordStudy(finished);
     if (advice.seek_to >= 0)
         player_->seek(advice.seek_to);
+    applyVolume();
 
     std::wstring text;
     if (session_.block >= 0 && session_.block < static_cast<int>(blocks_.size())) {
@@ -375,6 +389,52 @@ void MainWindow::updateSession()
         text = widen(block.label + "   " + timecode::format(remaining(session_, blocks_)) + " left");
     }
     player_panel_.showSession(text, totalsText());
+}
+
+void MainWindow::skipToBreak()
+{
+    bool bank = false;
+    if (session_.block >= 0 && session_.block < static_cast<int>(blocks_.size()) && !blocks_[session_.block].rest) {
+        std::wstring text = L"Skip to the break?\n\nYes - end this block and keep the ";
+        text += widen(timecode::format(static_cast<int>(block_studied_)));
+        text += L" you have done.\nNo - take the break now, then finish the block afterwards.\n\n";
+        text += widen(timecode::format(remaining(session_, blocks_)));
+        text += L" of this block is still owed.";
+        int answer = MessageBoxW(hwnd_, text.c_str(), L"Youtonomous", MB_YESNOCANCEL | MB_ICONQUESTION);
+        if (answer == IDCANCEL)
+            return;
+        bank = answer == IDNO;
+    }
+
+    std::string finished = currentBlockLabel();
+    SessionAdvice advice = ::skip(session_, blocks_, player_->time(), bank);
+    if (advice.block_done)
+        recordStudy(finished);
+    if (advice.seek_to >= 0)
+        player_->seek(advice.seek_to);
+}
+
+void MainWindow::applyVolume()
+{
+    int want = sessionVolume(session_, blocks_, settings_.silence_work, wanted_volume_);
+    if (want == applied_volume_)
+        return;
+    applied_volume_ = want;
+    player_->setVolume(want);
+}
+
+std::string MainWindow::studyLabel() const
+{
+    if (session_.resume_block >= 0 && session_.resume_block < static_cast<int>(blocks_.size()))
+        return blocks_[session_.resume_block].label;
+    return currentBlockIsRest() ? "" : currentBlockLabel();
+}
+
+bool MainWindow::currentBlockIsRest() const
+{
+    if (session_.block < 0 || session_.block >= static_cast<int>(blocks_.size()))
+        return false;
+    return blocks_[session_.block].rest;
 }
 
 std::string MainWindow::currentBlockLabel() const
@@ -525,7 +585,7 @@ void MainWindow::openVideo(const std::string& id)
         return;
     }
 
-    recordStudy(currentBlockLabel());
+    recordStudy(studyLabel());
     rememberPosition();
     current_id_ = id;
     player_->open(found->file, found->start);
@@ -812,6 +872,7 @@ bool MainWindow::handleKey(const MSG& msg)
     case 'B': addMark(); break;
     case 'S': setStart(player_->time()); break;
     case 'R': resume(); break;
+    case 'K': skipToBreak(); break;
     case 'F': setFullscreen(!fullscreen_); break;
     case VK_HOME: goToStart(); break;
     case VK_ESCAPE:

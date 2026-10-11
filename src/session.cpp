@@ -68,6 +68,15 @@ SessionAdvice advance(SessionState& state, const std::vector<Block>& blocks, int
     double length = block.end - block.start;
     if (state.elapsed >= length) {
         advice.block_done = true;
+        if (state.resume_block >= 0 && state.resume_block < count) {
+            state.block = state.resume_block;
+            state.elapsed = state.resume_elapsed;
+            advice.seek_to = state.resume_position;
+            state.resume_block = -1;
+            state.resume_elapsed = 0;
+            state.resume_position = 0;
+            return advice;
+        }
         state.elapsed = 0;
         state.block = state.block + 1 < count ? state.block + 1 : -1;
         if (state.block >= 0)
@@ -80,6 +89,41 @@ SessionAdvice advance(SessionState& state, const std::vector<Block>& blocks, int
     return advice;
 }
 
+SessionAdvice skip(SessionState& state, const std::vector<Block>& blocks, int position, bool bank)
+{
+    SessionAdvice advice;
+    int count = static_cast<int>(blocks.size());
+    bool working = state.block >= 0 && state.block < count && !blocks[state.block].rest;
+    if (state.block >= 0 && state.block < count && !working)
+        return advice;
+
+    int target = -1;
+    for (int i = 0; i < count; ++i) {
+        if (blocks[i].rest && blocks[i].start > position) {
+            target = i;
+            break;
+        }
+    }
+    if (target < 0)
+        return advice;
+
+    if (bank && working) {
+        state.resume_block = state.block;
+        state.resume_elapsed = state.elapsed;
+        state.resume_position = position;
+    } else {
+        advice.block_done = working;
+        state.resume_block = -1;
+        state.resume_elapsed = 0;
+        state.resume_position = 0;
+    }
+
+    state.block = target;
+    state.elapsed = 0;
+    advice.seek_to = blocks[target].start;
+    return advice;
+}
+
 int remaining(const SessionState& state, const std::vector<Block>& blocks)
 {
     if (state.block < 0 || state.block >= static_cast<int>(blocks.size()))
@@ -88,4 +132,13 @@ int remaining(const SessionState& state, const std::vector<Block>& blocks)
     const Block& block = blocks[state.block];
     double left = (block.end - block.start) - state.elapsed;
     return left > 0 ? static_cast<int>(left) : 0;
+}
+
+int sessionVolume(const SessionState& state, const std::vector<Block>& blocks, bool silence_work, int wanted)
+{
+    if (!silence_work)
+        return wanted;
+    if (state.block < 0 || state.block >= static_cast<int>(blocks.size()))
+        return wanted;
+    return blocks[state.block].rest ? wanted : 0;
 }

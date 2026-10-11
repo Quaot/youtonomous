@@ -81,9 +81,47 @@ static void checkState(const SessionState& state, int expected_block, double exp
           name + ": state is block " + std::to_string(expected_block) + ", elapsed " + std::to_string(expected_elapsed) + ", got " + describeState(state));
 }
 
+static std::string describeResume(const SessionState& state)
+{
+    return "resume_block " + std::to_string(state.resume_block) + ", resume_elapsed " + std::to_string(state.resume_elapsed)
+         + ", resume_position " + std::to_string(state.resume_position);
+}
+
+static void checkResume(const SessionState& state, int expected_block, double expected_elapsed, int expected_position, const std::string& name)
+{
+    check(state.resume_block == expected_block && sameTime(state.resume_elapsed, expected_elapsed) && state.resume_position == expected_position,
+          name + ": parked block " + std::to_string(expected_block) + ", elapsed " + std::to_string(expected_elapsed) + ", position "
+              + std::to_string(expected_position) + ", got " + describeResume(state));
+}
+
+static void checkNothingParked(const SessionState& state, const std::string& name)
+{
+    checkResume(state, -1, 0, 0, name);
+}
+
+static void checkSame(const SessionState& got, const SessionState& before, const std::string& name)
+{
+    check(got.block == before.block && sameTime(got.elapsed, before.elapsed) && got.resume_block == before.resume_block
+              && sameTime(got.resume_elapsed, before.resume_elapsed) && got.resume_position == before.resume_position,
+          name + ": state stays " + describeState(before) + ", " + describeResume(before) + ", got " + describeState(got) + ", " + describeResume(got));
+}
+
 static std::vector<Block> threeBlocks()
 {
     return {block("Pomodoro 1", 0, 60, false), block("Break 1", 60, 100, true), block("Pomodoro 2", 100, 160, false)};
+}
+
+static std::vector<Block> breakBlocks()
+{
+    return {block("Pomodoro 1", 0, 60, false), block("Guided Break 1", 60, 100, true), block("Pomodoro 2", 100, 160, false),
+            block("Guided Break 2", 160, 200, true), block("Pomodoro 3", 200, 260, false)};
+}
+
+static std::vector<Block> realVideoBlocks()
+{
+    return blocksOf(videoWith(10303, {mark(0, "Intro", true), mark(67, "Pomodoro 1", true), mark(3067, "Guided Break 1", true),
+                                      mark(3667, "Pomodoro 2", true), mark(6667, "Guided Break 2", true), mark(7265, "Pomodoro 3", true),
+                                      mark(10196, "Break 3", true)}));
 }
 
 // Plays through one block, feeding real time in ticks and moving playback at the given rate.
@@ -690,6 +728,642 @@ static void testTenThousandSecondVideo()
     check(remaining(state, blocks) == 2999, "Pomodoro 1 owes nearly its full 3000s at the start, got " + std::to_string(remaining(state, blocks)));
 }
 
+static void testSkipWithNoBlocks()
+{
+    std::vector<Block> none;
+
+    SessionState fresh;
+    SessionState before = fresh;
+    SessionAdvice advice = skip(fresh, none, 30, false);
+    checkEmptyAdvice(advice, "skipping with no blocks gives empty advice");
+    checkSame(fresh, before, "skipping with no blocks leaves the state alone");
+
+    SessionState banked;
+    SessionAdvice banked_advice = skip(banked, none, 30, true);
+    checkEmptyAdvice(banked_advice, "a banked skip with no blocks gives empty advice");
+    checkSame(banked, SessionState(), "a banked skip with no blocks parks nothing");
+
+    SessionState running;
+    running.block = 1;
+    running.elapsed = 17.5;
+    SessionState running_before = running;
+    SessionAdvice running_advice = skip(running, none, 90, true);
+    checkEmptyAdvice(running_advice, "skipping with no blocks never advises anything");
+    checkSame(running, running_before, "skipping with no blocks does not touch a running state");
+}
+
+static void testSkipWhileOnABreak()
+{
+    std::vector<Block> blocks = breakBlocks();
+
+    SessionState on_break;
+    on_break.block = 1;
+    on_break.elapsed = 12.5;
+    SessionState before = on_break;
+    SessionAdvice advice = skip(on_break, blocks, 70, false);
+    checkEmptyAdvice(advice, "skipping while on a break gives empty advice");
+    checkSame(on_break, before, "skipping while on a break leaves the state alone");
+
+    SessionState banked;
+    banked.block = 1;
+    banked.elapsed = 12.5;
+    SessionState banked_before = banked;
+    SessionAdvice banked_advice = skip(banked, blocks, 70, true);
+    checkEmptyAdvice(banked_advice, "a banked skip while on a break gives empty advice");
+    checkSame(banked, banked_before, "a banked skip while on a break parks nothing");
+
+    SessionState later_break;
+    later_break.block = 3;
+    later_break.elapsed = 1;
+    SessionState later_before = later_break;
+    SessionAdvice later = skip(later_break, blocks, 170, true);
+    checkEmptyAdvice(later, "skipping while on a later break gives empty advice");
+    checkSame(later_break, later_before, "skipping while on a later break leaves the state alone");
+
+    SessionState break_before_a_break;
+    break_before_a_break.block = 1;
+    break_before_a_break.elapsed = 5;
+    SessionState pair_before = break_before_a_break;
+    SessionAdvice pair = skip(break_before_a_break, blocks, 70, false);
+    checkEmptyAdvice(pair, "being on a break beats a later break being ahead");
+    checkSame(break_before_a_break, pair_before, "being on a break leaves the state alone even with a break ahead");
+}
+
+static void testSkipWithNoBreakAhead()
+{
+    std::vector<Block> blocks = threeBlocks();
+
+    SessionState last;
+    last.block = 2;
+    last.elapsed = 20;
+    SessionState last_before = last;
+    SessionAdvice advice = skip(last, blocks, 130, false);
+    checkEmptyAdvice(advice, "skipping with no break ahead gives empty advice");
+    checkSame(last, last_before, "skipping with no break ahead leaves the state alone");
+
+    SessionState banked;
+    banked.block = 2;
+    banked.elapsed = 20;
+    SessionState banked_before = banked;
+    SessionAdvice banked_advice = skip(banked, blocks, 130, true);
+    checkEmptyAdvice(banked_advice, "a banked skip with no break ahead gives empty advice");
+    checkSame(banked, banked_before, "a banked skip with no break ahead parks nothing");
+
+    SessionState at_break_start;
+    at_break_start.block = 0;
+    at_break_start.elapsed = 10;
+    SessionState at_break_before = at_break_start;
+    SessionAdvice at_break = skip(at_break_start, blocks, 60, false);
+    checkEmptyAdvice(at_break, "the only break starting exactly at the position is not a target");
+    checkSame(at_break_start, at_break_before, "the only break starting at the position leaves the state alone");
+
+    std::vector<Block> all_work = {block("Pomodoro 1", 0, 60, false), block("Pomodoro 2", 60, 120, false)};
+    SessionState no_rest;
+    no_rest.block = 0;
+    no_rest.elapsed = 5;
+    SessionState no_rest_before = no_rest;
+    SessionAdvice none = skip(no_rest, all_work, 5, true);
+    checkEmptyAdvice(none, "skipping in a video without any break gives empty advice");
+    checkSame(no_rest, no_rest_before, "skipping in a video without any break leaves the state alone");
+
+    SessionState idle_no_rest;
+    SessionAdvice idle_advice = skip(idle_no_rest, all_work, 0, false);
+    checkEmptyAdvice(idle_advice, "skipping with no block and no break ahead gives empty advice");
+    checkSame(idle_no_rest, SessionState(), "skipping with no block and no break ahead leaves the state alone");
+}
+
+static void testSkipFromAWorkBlockUnbanked()
+{
+    std::vector<Block> blocks = breakBlocks();
+    SessionState state;
+    state.block = 0;
+    state.elapsed = 30;
+    SessionAdvice advice = skip(state, blocks, 30, false);
+    check(advice.seek_to == 60, "an unbanked skip seeks to the next break's start, got " + describeAdvice(advice));
+    check(advice.block_done, "an unbanked skip from a work block reports the block as done, got " + describeAdvice(advice));
+    checkState(state, 1, 0, "an unbanked skip moves to the break with a fresh clock");
+    checkNothingParked(state, "an unbanked skip parks nothing");
+    check(remaining(state, blocks) == 40, "the break owes its full length after a skip, got " + std::to_string(remaining(state, blocks)));
+
+    SessionState fresh_work;
+    fresh_work.block = 2;
+    fresh_work.elapsed = 0;
+    SessionAdvice second = skip(fresh_work, blocks, 100, false);
+    check(second.seek_to == 160, "an unbanked skip from the second work block seeks to 160, got " + describeAdvice(second));
+    check(second.block_done, "an unbanked skip with nothing accrued still reports the block as done, got " + describeAdvice(second));
+    checkState(fresh_work, 3, 0, "an unbanked skip from the second work block moves to the second break");
+    checkNothingParked(fresh_work, "an unbanked skip from the second work block parks nothing");
+}
+
+static void testSkipFromAWorkBlockBanked()
+{
+    std::vector<Block> blocks = breakBlocks();
+    SessionState state;
+    state.block = 0;
+    state.elapsed = 30;
+    SessionAdvice advice = skip(state, blocks, 42, true);
+    check(advice.seek_to == 60, "a banked skip seeks to the next break's start, got " + describeAdvice(advice));
+    check(!advice.block_done, "a banked skip does not report the block as done, got " + describeAdvice(advice));
+    checkState(state, 1, 0, "a banked skip moves to the break with a fresh clock");
+    checkResume(state, 0, 30, 42, "a banked skip parks the abandoned block");
+
+    SessionState second;
+    second.block = 2;
+    second.elapsed = 12.25;
+    SessionAdvice second_advice = skip(second, blocks, 150, true);
+    check(second_advice.seek_to == 160, "a banked skip from the second work block seeks to 160, got " + describeAdvice(second_advice));
+    check(!second_advice.block_done, "a banked skip from the second work block is not a finish, got " + describeAdvice(second_advice));
+    checkState(second, 3, 0, "a banked skip from the second work block moves to the second break");
+    checkResume(second, 2, 12.25, 150, "a banked skip parks the second work block");
+
+    SessionState nothing_done;
+    nothing_done.block = 0;
+    nothing_done.elapsed = 0;
+    skip(nothing_done, blocks, 0, true);
+    checkResume(nothing_done, 0, 0, 0, "a banked skip with nothing accrued parks a zero elapsed");
+}
+
+static void testSkipWithNoActiveBlock()
+{
+    std::vector<Block> blocks = realVideoBlocks();
+
+    SessionState idle;
+    SessionAdvice advice = skip(idle, blocks, 30, false);
+    check(advice.seek_to == 3067, "skipping during the intro jumps to the first break, got " + describeAdvice(advice));
+    check(!advice.block_done, "skipping with no block active finishes nothing, got " + describeAdvice(advice));
+    checkState(idle, 1, 0, "skipping during the intro lands on the first break");
+    checkNothingParked(idle, "skipping during the intro parks nothing");
+
+    SessionState banked;
+    SessionAdvice banked_advice = skip(banked, blocks, 30, true);
+    check(banked_advice.seek_to == 3067, "a banked skip during the intro still jumps to the first break, got " + describeAdvice(banked_advice));
+    check(!banked_advice.block_done, "a banked skip with no block active finishes nothing, got " + describeAdvice(banked_advice));
+    checkState(banked, 1, 0, "a banked skip during the intro lands on the first break");
+    checkNothingParked(banked, "banking is meaningless with no block active and parks nothing");
+
+    std::vector<Block> gapped = {block("Pomodoro 1", 0, 300, false), block("Guided Break 1", 500, 800, true)};
+    SessionState in_gap;
+    SessionAdvice gap_advice = skip(in_gap, gapped, 400, true);
+    check(gap_advice.seek_to == 500, "skipping from inside removed filler jumps to the break, got " + describeAdvice(gap_advice));
+    check(!gap_advice.block_done, "skipping from inside removed filler finishes nothing, got " + describeAdvice(gap_advice));
+    checkState(in_gap, 1, 0, "skipping from inside removed filler lands on the break");
+    checkNothingParked(in_gap, "skipping from inside removed filler parks nothing");
+
+    SessionState past_end;
+    past_end.block = 9;
+    past_end.elapsed = 5;
+    SessionAdvice past_advice = skip(past_end, blocks, 30, true);
+    check(past_advice.seek_to == 3067, "a block index past the end counts as no block active, got " + describeAdvice(past_advice));
+    check(!past_advice.block_done, "a block index past the end finishes nothing, got " + describeAdvice(past_advice));
+    checkState(past_end, 1, 0, "a skip with a block index past the end lands on the first break");
+    checkNothingParked(past_end, "a skip with a block index past the end parks nothing");
+}
+
+static void testSkipTargetChoice()
+{
+    std::vector<Block> blocks = breakBlocks();
+
+    SessionState nearest;
+    nearest.block = 0;
+    nearest.elapsed = 5;
+    SessionAdvice nearest_advice = skip(nearest, blocks, 0, false);
+    check(nearest_advice.seek_to == 60, "the nearest break ahead wins, got " + describeAdvice(nearest_advice));
+    checkState(nearest, 1, 0, "the nearest break ahead is the target");
+
+    SessionState just_short;
+    just_short.block = 0;
+    just_short.elapsed = 5;
+    SessionAdvice short_advice = skip(just_short, blocks, 59, false);
+    check(short_advice.seek_to == 60, "a break starting one second ahead is still the target, got " + describeAdvice(short_advice));
+    checkState(just_short, 1, 0, "a break starting one second ahead is the target");
+
+    SessionState at_start;
+    at_start.block = 0;
+    at_start.elapsed = 5;
+    SessionAdvice at_start_advice = skip(at_start, blocks, 60, false);
+    check(at_start_advice.seek_to == 160, "a position exactly at a break's start looks past it, got " + describeAdvice(at_start_advice));
+    checkState(at_start, 3, 0, "a position exactly at a break's start lands on the later break");
+
+    SessionState idle_at_start;
+    SessionAdvice idle_advice = skip(idle_at_start, blocks, 60, false);
+    check(idle_advice.seek_to == 160, "with no block active a position at a break's start looks past it, got " + describeAdvice(idle_advice));
+    checkState(idle_at_start, 3, 0, "with no block active a position at a break's start lands on the later break");
+
+    SessionState inside_a_break_position;
+    inside_a_break_position.block = 0;
+    inside_a_break_position.elapsed = 5;
+    SessionAdvice inside = skip(inside_a_break_position, blocks, 80, false);
+    check(inside.seek_to == 160, "a position inside a break looks past that break, got " + describeAdvice(inside));
+    checkState(inside_a_break_position, 3, 0, "a position inside a break lands on the next break");
+
+    SessionState behind;
+    behind.block = 2;
+    behind.elapsed = 5;
+    SessionAdvice behind_advice = skip(behind, blocks, 120, true);
+    check(behind_advice.seek_to == 160, "a break behind the position is never the target, got " + describeAdvice(behind_advice));
+    checkState(behind, 3, 0, "a break behind the position is skipped over");
+    checkResume(behind, 2, 5, 120, "a banked skip past an earlier break parks the current block");
+
+    std::vector<Block> three_breaks = {block("Pomodoro 1", 0, 60, false), block("Break 1", 60, 100, true),
+                                       block("Break 2", 100, 140, true), block("Pomodoro 2", 140, 200, false),
+                                       block("Break 3", 200, 240, true)};
+    SessionState many;
+    many.block = 0;
+    many.elapsed = 1;
+    SessionAdvice many_advice = skip(many, three_breaks, 10, false);
+    check(many_advice.seek_to == 60, "with three breaks ahead the first one wins, got " + describeAdvice(many_advice));
+    checkState(many, 1, 0, "with three breaks ahead the first one is the target");
+
+    SessionState many_mid;
+    many_mid.block = 0;
+    many_mid.elapsed = 1;
+    SessionAdvice mid_advice = skip(many_mid, three_breaks, 60, false);
+    check(mid_advice.seek_to == 100, "the next break after the one at the position is the target, got " + describeAdvice(mid_advice));
+    checkState(many_mid, 2, 0, "the next break after the one at the position is taken");
+
+    SessionState last_break;
+    last_break.block = 3;
+    last_break.elapsed = 1;
+    SessionAdvice last_advice = skip(last_break, three_breaks, 140, false);
+    check(last_advice.seek_to == 200, "the last break is reachable, got " + describeAdvice(last_advice));
+    checkState(last_break, 4, 0, "the last break is reachable");
+}
+
+static void testSkipClearsElapsed()
+{
+    std::vector<Block> blocks = breakBlocks();
+    SessionState state;
+    state.block = 0;
+    state.elapsed = 55;
+    skip(state, blocks, 55, false);
+    check(sameTime(state.elapsed, 0), "a skip clears the clock for the break, got " + describeState(state));
+    check(remaining(state, blocks) == 40, "the break owes its whole length after a skip, got " + std::to_string(remaining(state, blocks)));
+
+    SessionState banked;
+    banked.block = 0;
+    banked.elapsed = 55;
+    skip(banked, blocks, 55, true);
+    check(sameTime(banked.elapsed, 0), "a banked skip clears the clock for the break, got " + describeState(banked));
+    check(remaining(banked, blocks) == 40, "the break owes its whole length after a banked skip, got " + std::to_string(remaining(banked, blocks)));
+}
+
+static void testAdvanceResumesAParkedBlock()
+{
+    std::vector<Block> blocks = threeBlocks();
+
+    SessionState state;
+    state.block = 1;
+    state.elapsed = 39.9;
+    state.resume_block = 0;
+    state.resume_elapsed = 25;
+    state.resume_position = 25;
+    SessionAdvice advice = advance(state, blocks, 70, 0.25, true);
+    check(advice.block_done, "finishing a break with a parked block is still a finish, got " + describeAdvice(advice));
+    check(advice.seek_to == 25, "finishing a break seeks back to the parked position, got " + describeAdvice(advice));
+    checkState(state, 0, 25, "finishing a break returns to the parked block with its accrued time");
+    checkNothingParked(state, "a resumed block clears the parked fields");
+    check(remaining(state, blocks) == 35, "the resumed block owes only what was left, got " + std::to_string(remaining(state, blocks)));
+
+    SessionState no_park;
+    no_park.block = 1;
+    no_park.elapsed = 39.9;
+    SessionAdvice normal = advance(no_park, blocks, 70, 0.25, true);
+    check(normal.block_done, "finishing a break without a parked block is a finish, got " + describeAdvice(normal));
+    check(normal.seek_to == 100, "finishing a break without a parked block moves on, got " + describeAdvice(normal));
+    checkState(no_park, 2, 0, "finishing a break without a parked block moves to the next one");
+
+    SessionState bad_park;
+    bad_park.block = 1;
+    bad_park.elapsed = 39.9;
+    bad_park.resume_block = 9;
+    bad_park.resume_elapsed = 25;
+    bad_park.resume_position = 25;
+    SessionAdvice bad = advance(bad_park, blocks, 70, 0.25, true);
+    check(bad.seek_to == 100, "a parked index past the end is not resumed, got " + describeAdvice(bad));
+    checkState(bad_park, 2, 0, "a parked index past the end moves on normally");
+
+    SessionState negative_park;
+    negative_park.block = 1;
+    negative_park.elapsed = 39.9;
+    negative_park.resume_block = -4;
+    SessionAdvice negative = advance(negative_park, blocks, 70, 0.25, true);
+    check(negative.seek_to == 100, "a negative parked index is not resumed, got " + describeAdvice(negative));
+    checkState(negative_park, 2, 0, "a negative parked index moves on normally");
+
+    SessionState after_last;
+    after_last.block = 2;
+    after_last.elapsed = 59.9;
+    after_last.resume_block = 0;
+    after_last.resume_elapsed = 10;
+    after_last.resume_position = 10;
+    SessionAdvice last = advance(after_last, blocks, 130, 0.25, true);
+    check(last.block_done, "finishing the last block with a parked block is a finish, got " + describeAdvice(last));
+    check(last.seek_to == 10, "finishing the last block returns to the parked block, got " + describeAdvice(last));
+    checkState(after_last, 0, 10, "a parked block is resumed even after the last block");
+    checkNothingParked(after_last, "resuming after the last block clears the parked fields");
+}
+
+static void testParkedBlockResumedOnlyOnce()
+{
+    std::vector<Block> blocks = breakBlocks();
+    SessionState state;
+    state.block = 1;
+    state.elapsed = 39.9;
+    state.resume_block = 0;
+    state.resume_elapsed = 50;
+    state.resume_position = 50;
+    SessionAdvice resumed = advance(state, blocks, 90, 0.25, true);
+    check(resumed.seek_to == 50, "the parked block is resumed, got " + describeAdvice(resumed));
+    checkState(state, 0, 50, "the parked block is resumed with its accrued time");
+    checkNothingParked(state, "the parked fields are cleared on resume");
+
+    state.elapsed = 59.9;
+    SessionAdvice onwards = advance(state, blocks, 55, 0.25, true);
+    check(onwards.block_done, "the resumed block finishes, got " + describeAdvice(onwards));
+    check(onwards.seek_to == 60, "the resumed block moves on to the block after it, got " + describeAdvice(onwards));
+    checkState(state, 1, 0, "the resumed block is not parked a second time");
+    checkNothingParked(state, "nothing is parked after a resumed block finishes");
+
+    state.elapsed = 39.9;
+    SessionAdvice third = advance(state, blocks, 90, 0.25, true);
+    check(third.seek_to == 100, "the following break moves on normally, got " + describeAdvice(third));
+    checkState(state, 2, 0, "the following break moves on to the next work block");
+}
+
+static void testBankedSkipRoundTrip()
+{
+    std::vector<Block> blocks = breakBlocks();
+    SessionState state;
+    state.block = 0;
+    state.elapsed = 20;
+
+    SessionAdvice advice = skip(state, blocks, 20, true);
+    check(advice.seek_to == 60, "the banked skip seeks to the break, got " + describeAdvice(advice));
+    check(!advice.block_done, "the banked skip is not a finish, got " + describeAdvice(advice));
+    checkResume(state, 0, 20, 20, "the banked skip parks the work block");
+
+    RunResult run = playBlock(state, blocks, 1, 1.0, 0.25);
+    check(run.finished, "the break runs to its end after a banked skip");
+    check(run.real_seconds >= 39.5 && run.real_seconds <= 40.5,
+          "the break takes its full length after a banked skip, got " + std::to_string(run.real_seconds) + "s");
+    check(run.finish_seek == 20, "the break hands playback back to the parked position, got " + std::to_string(run.finish_seek));
+    checkState(state, 0, 20, "the session returns to the parked work block");
+    checkNothingParked(state, "the round trip clears the parked fields");
+    check(remaining(state, blocks) == 40, "the resumed work block owes only the time still owed, got " + std::to_string(remaining(state, blocks)));
+
+    RunResult rest_of_it = playBlock(state, blocks, 0, 1.0, 0.25);
+    check(rest_of_it.finished, "the resumed work block finishes");
+    check(rest_of_it.real_seconds >= 39.5 && rest_of_it.real_seconds <= 40.5,
+          "the resumed work block takes only the owed time, got " + std::to_string(rest_of_it.real_seconds) + "s");
+    check(rest_of_it.finish_seek == 60, "the resumed work block moves on to the break after it, got " + std::to_string(rest_of_it.finish_seek));
+    checkState(state, 1, 0, "the resumed work block moves on to the next block");
+    checkNothingParked(state, "nothing is parked once the round trip is over");
+
+    RunResult second_break = playBlock(state, blocks, 1, 1.0, 0.25);
+    check(second_break.finished, "the break after the resumed block finishes");
+    check(second_break.finish_seek == 100, "the break after the resumed block moves on normally, got " + std::to_string(second_break.finish_seek));
+    checkState(state, 2, 0, "the break after the resumed block does not loop back");
+}
+
+static void testUnbankedSkipDoesNotComeBack()
+{
+    std::vector<Block> blocks = breakBlocks();
+    SessionState state;
+    state.block = 0;
+    state.elapsed = 30;
+
+    SessionAdvice advice = skip(state, blocks, 30, false);
+    check(advice.block_done, "the unbanked skip reports the abandoned block as done, got " + describeAdvice(advice));
+    checkNothingParked(state, "the unbanked skip parks nothing");
+
+    RunResult run = playBlock(state, blocks, 1, 1.0, 0.25);
+    check(run.finished, "the break runs to its end after an unbanked skip");
+    check(run.finish_seek == 100, "an unbanked skip does not come back to the abandoned block, got " + std::to_string(run.finish_seek));
+    checkState(state, 2, 0, "an unbanked skip carries on to the block after the break");
+    checkNothingParked(state, "nothing is parked after an unbanked skip's break");
+    check(remaining(state, blocks) == 60, "the next work block owes its whole length, got " + std::to_string(remaining(state, blocks)));
+}
+
+static void testSkipOnTheRealVideo()
+{
+    std::vector<Block> blocks = realVideoBlocks();
+    check(blocks.size() == 6, "the real video gives 6 blocks for skipping, got " + describe(blocks));
+
+    SessionState state;
+    state.block = 0;
+    state.elapsed = 600;
+    SessionAdvice advice = skip(state, blocks, 1000, false);
+    check(advice.seek_to == 3067, "skipping from inside Pomodoro 1 lands on Guided Break 1 at 3067, got " + describeAdvice(advice));
+    check(state.block == 1 && blocks.size() == 6 && blocks[state.block].label == "Guided Break 1",
+          "skipping from inside Pomodoro 1 lands on Guided Break 1, got " + describeState(state));
+    checkState(state, 1, 0, "skipping from inside Pomodoro 1 starts the break with a fresh clock");
+    checkNothingParked(state, "an unbanked skip on the real video parks nothing");
+
+    SessionState from_second;
+    from_second.block = 2;
+    from_second.elapsed = 100;
+    SessionAdvice second = skip(from_second, blocks, 4000, false);
+    check(second.seek_to == 6667, "skipping from inside Pomodoro 2 lands on Guided Break 2 at 6667, got " + describeAdvice(second));
+    checkState(from_second, 3, 0, "skipping from inside Pomodoro 2 lands on Guided Break 2");
+
+    SessionState from_third;
+    from_third.block = 4;
+    from_third.elapsed = 100;
+    SessionAdvice third = skip(from_third, blocks, 8000, false);
+    check(third.seek_to == 10196, "skipping from inside Pomodoro 3 lands on Break 3 at 10196, got " + describeAdvice(third));
+    checkState(from_third, 5, 0, "skipping from inside Pomodoro 3 lands on Break 3");
+
+    SessionState on_last_break;
+    on_last_break.block = 5;
+    on_last_break.elapsed = 10;
+    SessionState last_before = on_last_break;
+    SessionAdvice none = skip(on_last_break, blocks, 10200, false);
+    checkEmptyAdvice(none, "skipping on the real video's last break gives empty advice");
+    checkSame(on_last_break, last_before, "skipping on the real video's last break leaves the state alone");
+
+    SessionState banked;
+    banked.block = 0;
+    banked.elapsed = 1800;
+    SessionAdvice banked_advice = skip(banked, blocks, 1867, true);
+    check(banked_advice.seek_to == 3067, "the banked skip on the real video seeks to 3067, got " + describeAdvice(banked_advice));
+    check(!banked_advice.block_done, "the banked skip on the real video is not a finish, got " + describeAdvice(banked_advice));
+    checkState(banked, 1, 0, "the banked skip on the real video starts Guided Break 1");
+    checkResume(banked, 0, 1800, 1867, "the banked skip on the real video parks Pomodoro 1");
+
+    RunResult run = playBlock(banked, blocks, 1, 1.0, 0.25);
+    check(run.finished, "Guided Break 1 runs to its end after the banked skip");
+    check(run.real_seconds >= 599.5 && run.real_seconds <= 600.5,
+          "Guided Break 1 takes its full 600s after the banked skip, got " + std::to_string(run.real_seconds) + "s");
+    check(run.finish_seek == 1867, "Guided Break 1 hands playback back to 1867, got " + std::to_string(run.finish_seek));
+    check(banked.block == 0 && blocks.size() == 6 && blocks[banked.block].label == "Pomodoro 1",
+          "the banked skip returns to Pomodoro 1, got " + describeState(banked));
+    checkState(banked, 0, 1800, "the banked skip returns to Pomodoro 1 with its 1800s already spent");
+    checkNothingParked(banked, "the real video round trip clears the parked fields");
+    check(remaining(banked, blocks) == 1200, "Pomodoro 1 owes 1200s after the banked break, got " + std::to_string(remaining(banked, blocks)));
+
+    RunResult owed = playBlock(banked, blocks, 0, 1.0, 0.25);
+    check(owed.finished, "the resumed Pomodoro 1 finishes");
+    check(owed.real_seconds >= 1199.5 && owed.real_seconds <= 1200.5,
+          "the resumed Pomodoro 1 takes only the owed 1200s, got " + std::to_string(owed.real_seconds) + "s");
+    check(owed.finish_seek == 3067, "the resumed Pomodoro 1 moves on to Guided Break 1, got " + std::to_string(owed.finish_seek));
+    checkState(banked, 1, 0, "the resumed Pomodoro 1 moves on rather than looping back");
+}
+
+static void testSessionVolumeWithoutSilence()
+{
+    std::vector<Block> blocks = threeBlocks();
+
+    SessionState work;
+    work.block = 0;
+    check(sessionVolume(work, blocks, false, 70) == 70,
+          "without silence a work block plays at the wanted volume, got " + std::to_string(sessionVolume(work, blocks, false, 70)));
+
+    SessionState rest;
+    rest.block = 1;
+    check(sessionVolume(rest, blocks, false, 70) == 70,
+          "without silence a break plays at the wanted volume, got " + std::to_string(sessionVolume(rest, blocks, false, 70)));
+
+    SessionState idle;
+    check(sessionVolume(idle, blocks, false, 70) == 70,
+          "without silence an idle session plays at the wanted volume, got " + std::to_string(sessionVolume(idle, blocks, false, 70)));
+
+    check(sessionVolume(work, blocks, false, 0) == 0, "without silence a wanted 0 comes back as 0, got " + std::to_string(sessionVolume(work, blocks, false, 0)));
+    check(sessionVolume(work, blocks, false, 100) == 100,
+          "without silence a wanted 100 comes back as 100, got " + std::to_string(sessionVolume(work, blocks, false, 100)));
+
+    std::vector<Block> none;
+    check(sessionVolume(work, none, false, 55) == 55,
+          "without silence and with no blocks the wanted volume comes back, got " + std::to_string(sessionVolume(work, none, false, 55)));
+}
+
+static void testSessionVolumeSilencesWork()
+{
+    std::vector<Block> blocks = threeBlocks();
+
+    SessionState first;
+    first.block = 0;
+    check(sessionVolume(first, blocks, true, 70) == 0, "silence mutes a work block, got " + std::to_string(sessionVolume(first, blocks, true, 70)));
+
+    SessionState second;
+    second.block = 2;
+    check(sessionVolume(second, blocks, true, 70) == 0,
+          "silence mutes the second work block too, got " + std::to_string(sessionVolume(second, blocks, true, 70)));
+
+    first.elapsed = 59.9;
+    check(sessionVolume(first, blocks, true, 70) == 0,
+          "silence mutes a work block however far into it, got " + std::to_string(sessionVolume(first, blocks, true, 70)));
+
+    check(sessionVolume(first, blocks, true, 0) == 0, "a muted work block with a wanted 0 is still 0, got " + std::to_string(sessionVolume(first, blocks, true, 0)));
+    check(sessionVolume(first, blocks, true, 100) == 0,
+          "a muted work block with a wanted 100 is still 0, got " + std::to_string(sessionVolume(first, blocks, true, 100)));
+}
+
+static void testSessionVolumeOnBreaks()
+{
+    std::vector<Block> blocks = threeBlocks();
+
+    SessionState rest;
+    rest.block = 1;
+    check(sessionVolume(rest, blocks, true, 70) == 70, "silence leaves a break alone, got " + std::to_string(sessionVolume(rest, blocks, true, 70)));
+    check(sessionVolume(rest, blocks, true, 0) == 0, "a break with a wanted 0 stays 0, got " + std::to_string(sessionVolume(rest, blocks, true, 0)));
+    check(sessionVolume(rest, blocks, true, 100) == 100, "a break with a wanted 100 stays 100, got " + std::to_string(sessionVolume(rest, blocks, true, 100)));
+
+    std::vector<Block> every_kind = breakBlocks();
+    SessionState later;
+    later.block = 3;
+    check(sessionVolume(later, every_kind, true, 42) == 42,
+          "silence leaves a later break alone, got " + std::to_string(sessionVolume(later, every_kind, true, 42)));
+}
+
+static void testSessionVolumeOutsideABlock()
+{
+    std::vector<Block> blocks = threeBlocks();
+
+    SessionState idle;
+    check(sessionVolume(idle, blocks, true, 70) == 70, "an intro plays at normal volume, got " + std::to_string(sessionVolume(idle, blocks, true, 70)));
+
+    SessionState past_end;
+    past_end.block = 3;
+    check(sessionVolume(past_end, blocks, true, 70) == 70,
+          "a block index at the end of the list plays at normal volume, got " + std::to_string(sessionVolume(past_end, blocks, true, 70)));
+
+    SessionState far_past;
+    far_past.block = 99;
+    check(sessionVolume(far_past, blocks, true, 70) == 70,
+          "a block index far past the end plays at normal volume, got " + std::to_string(sessionVolume(far_past, blocks, true, 70)));
+
+    SessionState negative;
+    negative.block = -4;
+    check(sessionVolume(negative, blocks, true, 70) == 70,
+          "a negative block index plays at normal volume, got " + std::to_string(sessionVolume(negative, blocks, true, 70)));
+
+    std::vector<Block> none;
+    SessionState on_nothing;
+    on_nothing.block = 0;
+    check(sessionVolume(on_nothing, none, true, 70) == 70,
+          "with no blocks there is nothing to be silent for, got " + std::to_string(sessionVolume(on_nothing, none, true, 70)));
+}
+
+static void testSessionVolumeNeverClamps()
+{
+    std::vector<Block> blocks = threeBlocks();
+
+    SessionState rest;
+    rest.block = 1;
+    check(sessionVolume(rest, blocks, true, 150) == 150, "a wanted 150 on a break comes back as 150, got " + std::to_string(sessionVolume(rest, blocks, true, 150)));
+    check(sessionVolume(rest, blocks, true, -5) == -5, "a wanted -5 on a break comes back as -5, got " + std::to_string(sessionVolume(rest, blocks, true, -5)));
+
+    SessionState work;
+    work.block = 0;
+    check(sessionVolume(work, blocks, false, 150) == 150, "a wanted 150 without silence comes back as 150, got " + std::to_string(sessionVolume(work, blocks, false, 150)));
+    check(sessionVolume(work, blocks, false, -5) == -5, "a wanted -5 without silence comes back as -5, got " + std::to_string(sessionVolume(work, blocks, false, -5)));
+
+    SessionState idle;
+    check(sessionVolume(idle, blocks, true, 150) == 150, "a wanted 150 outside a block comes back as 150, got " + std::to_string(sessionVolume(idle, blocks, true, 150)));
+}
+
+static void testSessionVolumeThroughARun()
+{
+    std::vector<Block> blocks = breakBlocks();
+    SessionState state;
+    state.block = 0;
+    std::vector<int> volumes;
+    for (int i = 0; i < 5; ++i) {
+        volumes.push_back(sessionVolume(state, blocks, true, 80));
+        playBlock(state, blocks, i, 1.0, 0.25);
+        if (state.block != i + 1 && i < 4)
+            break;
+    }
+    check(volumes.size() == 5, "a full run visits all five blocks, got " + std::to_string(volumes.size()));
+    if (volumes.size() == 5) {
+        check(volumes[0] == 0, "the first work block is silent, got " + std::to_string(volumes[0]));
+        check(volumes[1] == 80, "the first break plays, got " + std::to_string(volumes[1]));
+        check(volumes[2] == 0, "the second work block is silent, got " + std::to_string(volumes[2]));
+        check(volumes[3] == 80, "the second break plays, got " + std::to_string(volumes[3]));
+        check(volumes[4] == 0, "the third work block is silent, got " + std::to_string(volumes[4]));
+    }
+    check(sessionVolume(state, blocks, true, 80) == 80, "the volume comes back once the session ends, got " + std::to_string(sessionVolume(state, blocks, true, 80)));
+}
+
+static void testSessionVolumeAfterASkip()
+{
+    std::vector<Block> blocks = breakBlocks();
+    SessionState state;
+    state.block = 0;
+    state.elapsed = 30;
+    check(sessionVolume(state, blocks, true, 90) == 0, "the work block before a skip is silent, got " + std::to_string(sessionVolume(state, blocks, true, 90)));
+
+    skip(state, blocks, 30, true);
+    check(sessionVolume(state, blocks, true, 90) == 90, "a skip to a break brings the music back, got " + std::to_string(sessionVolume(state, blocks, true, 90)));
+
+    playBlock(state, blocks, 1, 1.0, 0.25);
+    check(sessionVolume(state, blocks, true, 90) == 0, "returning to the parked work block goes silent again, got " + std::to_string(sessionVolume(state, blocks, true, 90)));
+
+    SessionState idle;
+    skip(idle, blocks, 0, false);
+    check(sessionVolume(idle, blocks, true, 90) == 90, "a skip from the intro to a break plays, got " + std::to_string(sessionVolume(idle, blocks, true, 90)));
+}
+
 int main()
 {
     testPomodoroBlocks();
@@ -724,5 +1398,25 @@ int main()
     testRemaining();
     testRemainingCountsDown();
     testTenThousandSecondVideo();
+    testSkipWithNoBlocks();
+    testSkipWhileOnABreak();
+    testSkipWithNoBreakAhead();
+    testSkipFromAWorkBlockUnbanked();
+    testSkipFromAWorkBlockBanked();
+    testSkipWithNoActiveBlock();
+    testSkipTargetChoice();
+    testSkipClearsElapsed();
+    testAdvanceResumesAParkedBlock();
+    testParkedBlockResumedOnlyOnce();
+    testBankedSkipRoundTrip();
+    testUnbankedSkipDoesNotComeBack();
+    testSkipOnTheRealVideo();
+    testSessionVolumeWithoutSilence();
+    testSessionVolumeSilencesWork();
+    testSessionVolumeOnBreaks();
+    testSessionVolumeOutsideABlock();
+    testSessionVolumeNeverClamps();
+    testSessionVolumeThroughARun();
+    testSessionVolumeAfterASkip();
     return report();
 }

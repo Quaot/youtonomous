@@ -15,6 +15,7 @@ struct Settings {
     double speed = 1.0;
     int pitch = 0;
     bool keep_pitch = true;
+    bool silence_work = false;
 };
 
 Settings loadSettings(const std::filesystem::path& file);

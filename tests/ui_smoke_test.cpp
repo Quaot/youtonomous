@@ -442,6 +442,26 @@ static void secondRun(const std::wstring& command_line, std::wstring& environmen
     check(studied() <= 10, "the logged block counts real time, not sped-up time" + got(studied()));
     check(labelStartingWith(top, L"Studied today") != L"", "the totals line is shown");
 
+    check(button(top, L"Break") != nullptr, "a break button is shown");
+    HWND silence = button(top, L"Silent study");
+    check(silence != nullptr, "a silent study box is shown");
+    if (silence) {
+        SendMessageW(silence, BM_CLICK, 0, 0);
+        check(waitFor([&] { return SendMessageW(silence, BM_GETCHECK, 0, 0) == BST_CHECKED; }, 2000),
+              "the silent study box ticks");
+    }
+
+    check(waitFor([&] { return labelStartingWith(top, L"Break 1") != L""; }, 10000),
+          "the session moves on to the break once the block is done");
+    int on_break = playbackTime(top);
+    key(top, 'K');
+    HWND prompt = nullptr;
+    waitFor([&] { return (prompt = FindWindowExW(nullptr, nullptr, L"#32770", L"Youtonomous")) != nullptr; }, 1500);
+    check(prompt == nullptr, "skipping during a break asks nothing");
+    if (prompt)
+        PostMessageW(prompt, WM_COMMAND, IDCANCEL, 0);
+    check(playbackTime(top) >= on_break, "skipping during a break leaves playback alone" + got(playbackTime(top)));
+
     std::wstring start_label = labelStartingWith(top, L"Start at");
     check(start_label.find(L"last stopped at") != std::wstring::npos, "the start label shows where playback stopped");
     key(top, 'R');
@@ -526,6 +546,7 @@ int main(int argc, char** argv)
 
     nlohmann::json after = readJson(settings_file);
     check(after.value("window_x", -1) == 50 && after.value("window_width", 0) == 1000, "settings are saved again on close");
+    check(after.value("silence_work", false), "closing the app saves the silent study setting");
 
     fs::remove_all(root, error);
     return report();
