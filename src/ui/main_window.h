@@ -62,7 +62,7 @@ private:
     void resume();
 
     void updateSession();
-    void skipToBreak();
+    void skipBlock();
     void applyVolume();
     void recordStudy(const std::string& label);
     std::string currentBlockLabel() const;

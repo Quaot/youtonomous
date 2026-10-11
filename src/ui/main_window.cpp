@@ -305,7 +305,7 @@ void MainWindow::onCommand(int id, int code)
         if (code == BN_CLICKED)
             player_->setKeepPitch(player_panel_.keepPitchSetting());
         break;
-    case kBreak: skipToBreak(); break;
+    case kBreak: skipBlock(); break;
     case kSilence:
         if (code == BN_CLICKED) {
             settings_.silence_work = player_panel_.silenceSetting();
@@ -364,6 +364,7 @@ void MainWindow::updateSession()
 
     if (blocks_.empty()) {
         applyVolume();
+        player_panel_.showBreakLabel(false);
         player_panel_.showSession(L"", totalsText());
         return;
     }
@@ -382,6 +383,7 @@ void MainWindow::updateSession()
     if (advice.seek_to >= 0)
         player_->seek(advice.seek_to);
     applyVolume();
+    player_panel_.showBreakLabel(currentBlockIsRest());
 
     std::wstring text;
     if (session_.block >= 0 && session_.block < static_cast<int>(blocks_.size())) {
@@ -391,19 +393,35 @@ void MainWindow::updateSession()
     player_panel_.showSession(text, totalsText());
 }
 
-void MainWindow::skipToBreak()
+void MainWindow::skipBlock()
 {
     bool bank = false;
     if (session_.block >= 0 && session_.block < static_cast<int>(blocks_.size()) && !blocks_[session_.block].rest) {
-        std::wstring text = L"Skip to the break?\n\nYes - end this block and keep the ";
-        text += widen(timecode::format(static_cast<int>(block_studied_)));
-        text += L" you have done.\nNo - take the break now, then finish the block afterwards.\n\n";
-        text += widen(timecode::format(remaining(session_, blocks_)));
-        text += L" of this block is still owed.";
-        int answer = MessageBoxW(hwnd_, text.c_str(), L"Youtonomous", MB_YESNOCANCEL | MB_ICONQUESTION);
-        if (answer == IDCANCEL)
+        std::wstring owed = widen(timecode::format(remaining(session_, blocks_)) + " of this block is still owed.");
+        std::wstring keep = widen("End the block, keep the " + timecode::format(static_cast<int>(block_studied_)) + " done");
+
+        TASKDIALOG_BUTTON buttons[2];
+        buttons[0].nButtonID = IDYES;
+        buttons[0].pszButtonText = keep.c_str();
+        buttons[1].nButtonID = IDNO;
+        buttons[1].pszButtonText = L"Finish it after the break";
+
+        TASKDIALOGCONFIG config{};
+        config.cbSize = sizeof config;
+        config.hwndParent = hwnd_;
+        config.dwFlags = TDF_USE_COMMAND_LINKS | TDF_POSITION_RELATIVE_TO_WINDOW;
+        config.dwCommonButtons = TDCBF_CANCEL_BUTTON;
+        config.pszWindowTitle = L"Youtonomous";
+        config.pszMainInstruction = L"Skip to the break?";
+        config.pszContent = owed.c_str();
+        config.cButtons = 2;
+        config.pButtons = buttons;
+        config.nDefaultButton = IDNO;
+
+        int pressed = 0;
+        if (TaskDialogIndirect(&config, &pressed, nullptr, nullptr) != S_OK || pressed == IDCANCEL)
             return;
-        bank = answer == IDNO;
+        bank = pressed == IDNO;
     }
 
     std::string finished = currentBlockLabel();
@@ -872,7 +890,7 @@ bool MainWindow::handleKey(const MSG& msg)
     case 'B': addMark(); break;
     case 'S': setStart(player_->time()); break;
     case 'R': resume(); break;
-    case 'K': skipToBreak(); break;
+    case 'K': skipBlock(); break;
     case 'F': setFullscreen(!fullscreen_); break;
     case VK_HOME: goToStart(); break;
     case VK_ESCAPE:

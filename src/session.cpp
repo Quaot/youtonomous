@@ -93,9 +93,30 @@ SessionAdvice skip(SessionState& state, const std::vector<Block>& blocks, int po
 {
     SessionAdvice advice;
     int count = static_cast<int>(blocks.size());
-    bool working = state.block >= 0 && state.block < count && !blocks[state.block].rest;
-    if (state.block >= 0 && state.block < count && !working)
+    bool inside = state.block >= 0 && state.block < count;
+    bool working = inside && !blocks[state.block].rest;
+
+    if (inside && !working) {
+        if (state.resume_block >= 0 && state.resume_block < count) {
+            state.block = state.resume_block;
+            state.elapsed = state.resume_elapsed;
+            advice.seek_to = state.resume_position;
+            state.resume_block = -1;
+            state.resume_elapsed = 0;
+            state.resume_position = 0;
+            return advice;
+        }
+
+        for (int i = 0; i < count; ++i) {
+            if (!blocks[i].rest && blocks[i].start > position) {
+                state.block = i;
+                state.elapsed = 0;
+                advice.seek_to = blocks[i].start;
+                return advice;
+            }
+        }
         return advice;
+    }
 
     int target = -1;
     for (int i = 0; i < count; ++i) {

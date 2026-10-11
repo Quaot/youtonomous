@@ -32,9 +32,9 @@ void MarksPanel::create(const Context& context)
 
     start_label_ = addControl(context, L"STATIC", L"Start at", SS_LEFT, 0);
     start_edit_ = addControl(context, L"EDIT", L"", ES_AUTOHSCROLL, kStart, WS_EX_CLIENTEDGE);
-    set_start_button_ = addControl(context, L"BUTTON", L"Set", BS_PUSHBUTTON, kSetStart);
-    go_start_button_ = addControl(context, L"BUTTON", L"Go", BS_PUSHBUTTON, kGoStart);
-    resume_button_ = addControl(context, L"BUTTON", L"Resume", BS_PUSHBUTTON, kResume);
+    set_start_button_ = addControl(context, L"BUTTON", L"Save", BS_PUSHBUTTON, kSetStart);
+    go_start_button_ = addControl(context, L"BUTTON", L"Play from the start", BS_PUSHBUTTON, kGoStart);
+    resume_button_ = addControl(context, L"BUTTON", L"Carry on", BS_PUSHBUTTON, kResume);
 
     marks_label_ = addControl(context, L"STATIC", L"Bookmarks", SS_LEFT, 0);
     list_ = addControl(context, L"LISTBOX", L"", list_style, kMarks, WS_EX_CLIENTEDGE);
@@ -56,16 +56,16 @@ void MarksPanel::layout(int width, int height)
     int left = width - kPad - kSide;
     int label_row_y = bottom - kGap - kRow;
     int note_y = label_row_y - kGap - kNoteHeight;
-    int buttons_x = left + kSide - kButton * 3 - kGap * 2;
     int half = (kSide - kGap) / 2;
 
     int y = kPad;
     MoveWindow(start_label_, left, y, kSide, kLabel, TRUE);
     y += kLabel;
-    MoveWindow(start_edit_, left, y, buttons_x - kGap - left, kRow, TRUE);
-    MoveWindow(set_start_button_, buttons_x, y, kButton, kRow, TRUE);
-    MoveWindow(go_start_button_, buttons_x + kButton + kGap, y, kButton, kRow, TRUE);
-    MoveWindow(resume_button_, buttons_x + (kButton + kGap) * 2, y, kButton, kRow, TRUE);
+    MoveWindow(start_edit_, left, y, kSide - kSmallButton - kGap, kRow, TRUE);
+    MoveWindow(set_start_button_, left + kSide - kSmallButton, y, kSmallButton, kRow, TRUE);
+    y += kRow + kGap;
+    MoveWindow(go_start_button_, left, y, half, kRow, TRUE);
+    MoveWindow(resume_button_, left + half + kGap, y, half, kRow, TRUE);
     y += kRow + kPad;
     MoveWindow(marks_label_, left, y, kSide, kLabel, TRUE);
     y += kLabel;
@@ -102,14 +102,13 @@ void MarksPanel::show(const Video* video)
 void MarksPanel::showStart(int seconds)
 {
     setText(start_edit_, widen(timecode::format(seconds)));
+    setText(go_start_button_, seconds > 0 ? widen("Play from " + timecode::format(seconds)) : L"Play from the start");
 }
 
 void MarksPanel::showStoppedAt(int seconds)
 {
-    if (seconds > 0)
-        setText(start_label_, widen("Start at  (last stopped at " + timecode::format(seconds) + ")"));
-    else
-        setText(start_label_, L"Start at");
+    setText(start_label_, L"Skip the intro to");
+    setText(resume_button_, seconds > 0 ? widen("Carry on from " + timecode::format(seconds)) : L"Carry on");
     EnableWindow(resume_button_, seconds > 0 ? TRUE : FALSE);
 }
 

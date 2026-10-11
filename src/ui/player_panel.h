@@ -27,6 +27,7 @@ public:
 
     void showSession(const std::wstring& block, const std::wstring& totals);
 
+    void showBreakLabel(bool resting);
     void showSilence(bool silence);
     bool silenceSetting() const;
 

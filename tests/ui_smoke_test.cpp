@@ -146,6 +146,15 @@ static HWND button(HWND top, const std::wstring& caption)
     return nullptr;
 }
 
+static HWND buttonStartingWith(HWND top, const std::wstring& prefix)
+{
+    for (HWND hwnd : children(top, L"Button")) {
+        if (textOf(hwnd).rfind(prefix, 0) == 0)
+            return hwnd;
+    }
+    return nullptr;
+}
+
 static bool click(HWND top, const std::wstring& caption)
 {
     HWND hwnd = button(top, caption);
@@ -363,11 +372,12 @@ static void firstRun(const std::wstring& command_line, std::wstring& environment
         }
 
         setText(edits[1], L"0:20");
-        click(top, L"Set");
-        check(waitFor([&] { return savedVideo(library_file).value("start", -1) == 20; }, 3000), "Set saves the start point");
+        click(top, L"Save");
+        check(waitFor([&] { return savedVideo(library_file).value("start", -1) == 20; }, 3000), "Save saves the start point");
     }
 
-    check(labelStartingWith(top, L"Start at") == L"Start at", "the start label shows no stopped time on a first watch");
+    HWND carry = button(top, L"Carry on");
+    check(carry != nullptr && !IsWindowEnabled(carry), "carrying on is off until you have stopped somewhere");
 
     key(top, VK_HOME);
     check(waitFor([&] { return within(playbackTime(top), 20, 21); }, 5000), "Home goes to the start point" + got(playbackTime(top)));
@@ -453,17 +463,20 @@ static void secondRun(const std::wstring& command_line, std::wstring& environmen
 
     check(waitFor([&] { return labelStartingWith(top, L"Break 1") != L""; }, 10000),
           "the session moves on to the break once the block is done");
-    int on_break = playbackTime(top);
+    check(button(top, L"Study") != nullptr, "the break button offers a way back to studying");
     key(top, 'K');
     HWND prompt = nullptr;
-    waitFor([&] { return (prompt = FindWindowExW(nullptr, nullptr, L"#32770", L"Youtonomous")) != nullptr; }, 1500);
-    check(prompt == nullptr, "skipping during a break asks nothing");
+    waitFor([&] { return (prompt = FindWindowExW(nullptr, nullptr, L"#32770", L"Youtonomous")) != nullptr; }, 800);
     if (prompt)
         PostMessageW(prompt, WM_COMMAND, IDCANCEL, 0);
-    check(playbackTime(top) >= on_break, "skipping during a break leaves playback alone" + got(playbackTime(top)));
+    check(prompt == nullptr, "leaving a break asks nothing");
+    check(waitFor([&] { return playbackTime(top) >= 34; }, 3000),
+          "leaving a break early goes back to work" + got(playbackTime(top)));
+    check(waitFor([&] { return labelStartingWith(top, L"Pomodoro 2") != L""; }, 2000),
+          "the session names the work block it returns to");
 
-    std::wstring start_label = labelStartingWith(top, L"Start at");
-    check(start_label.find(L"last stopped at") != std::wstring::npos, "the start label shows where playback stopped");
+    HWND carry_on = buttonStartingWith(top, L"Carry on from");
+    check(carry_on != nullptr && IsWindowEnabled(carry_on), "the carry on button names where playback stopped");
     key(top, 'R');
     check(waitFor([&] { return within(playbackTime(top), stopped - 1, stopped + 4); }, 5000), "R resumes where playback stopped" + got(playbackTime(top)));
 
@@ -534,6 +547,7 @@ int main(int argc, char** argv)
     if (library.is_array() && !library.empty()) {
         library[0]["marks"].push_back({{"time", 18}, {"label", "Pomodoro 1"}, {"chapter", true}, {"note", ""}});
         library[0]["marks"].push_back({{"time", 24}, {"label", "Break 1"}, {"chapter", true}, {"note", ""}});
+        library[0]["marks"].push_back({{"time", 34}, {"label", "Pomodoro 2"}, {"chapter", true}, {"note", ""}});
         std::ofstream(library_file) << library.dump();
     }
 

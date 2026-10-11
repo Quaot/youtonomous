@@ -176,6 +176,11 @@ void PlayerPanel::showSession(const std::wstring& block, const std::wstring& tot
     setText(totals_label_, totals);
 }
 
+void PlayerPanel::showBreakLabel(bool resting)
+{
+    setText(break_button_, resting ? L"Study" : L"Break");
+}
+
 void PlayerPanel::showSilence(bool silence)
 {
     SendMessageW(silence_box_, BM_SETCHECK, silence ? BST_CHECKED : BST_UNCHECKED, 0);
