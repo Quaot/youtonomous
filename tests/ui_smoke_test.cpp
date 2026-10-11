@@ -309,16 +309,20 @@ static bool hasNote(const nlohmann::json& video, const std::string& label, const
     return false;
 }
 
-static void clickSeekBar(HWND top, int numerator, int denominator)
+static bool clickSeekBar(HWND top, int numerator, int denominator)
 {
     std::vector<HWND> bars = children(top, L"YoutonomousSeekBar");
     if (bars.empty())
-        return;
-    RECT rect;
-    GetClientRect(bars[0], &rect);
+        return false;
+
+    RECT rect{};
+    if (!waitFor([&] { return GetClientRect(bars[0], &rect) && rect.right > 0; }, 5000))
+        return false;
+
     LPARAM point = MAKELPARAM(rect.right * numerator / denominator, rect.bottom / 2);
     SendMessageW(bars[0], WM_LBUTTONDOWN, MK_LBUTTON, point);
     SendMessageW(bars[0], WM_LBUTTONUP, 0, point);
+    return true;
 }
 
 static void firstRun(const std::wstring& command_line, std::wstring& environment, const fs::path& library_file)
@@ -341,7 +345,7 @@ static void firstRun(const std::wstring& command_line, std::wstring& environment
     check(waitFor([&] { return within(playbackTime(top), paused - 1, paused + 1); }, 5000), "-10 moves back 10 s" + got(playbackTime(top)));
 
     check(children(top, L"YoutonomousSeekBar").size() == 1, "one seek bar is shown");
-    clickSeekBar(top, 3, 4);
+    check(clickSeekBar(top, 3, 4), "the seek bar has a width to be clicked on");
     check(waitFor([&] { return within(playbackTime(top), 28, 32); }, 5000), "clicking three quarters along the bar seeks to about 30 s" + got(playbackTime(top)));
 
     int before = markCount(top);

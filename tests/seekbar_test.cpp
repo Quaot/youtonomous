@@ -282,6 +282,87 @@ static void testResize(HWND bar)
     expectClick(bar, 300, clientWidth(bar) / 2);
 }
 
+static void testZeroWidthPostsNothing(HWND bar)
+{
+    MoveWindow(bar, 0, 0, 600, 24, TRUE);
+    seekbar::setRange(bar, 300);
+    int sized_width = clientWidth(bar);
+    check(sized_width > 0, "bar has a positive client width before shrinking it, got " + std::to_string(sized_width));
+
+    SetWindowPos(bar, nullptr, 0, 0, 0, 24, SWP_NOZORDER | SWP_NOACTIVATE);
+    int width = clientWidth(bar);
+    check(width == 0, "SetWindowPos gives the bar a client width of 0, got " + std::to_string(width));
+
+    for (int x : {0, 1, -1, 300, 32000}) {
+        click(bar, x);
+        expectNothing(bar, 300, "click at x=" + std::to_string(x) + " on a zero-width bar with a range set");
+    }
+
+    drag(bar, 0, 10);
+    expectNothing(bar, 300, "drag from x=0 to x=10 on a zero-width bar");
+    drag(bar, 32000, 0);
+    expectNothing(bar, 300, "drag from x=32000 to x=0 on a zero-width bar");
+
+    press(bar, WM_LBUTTONDOWN, MK_LBUTTON, 0, 0);
+    press(bar, WM_MOUSEMOVE, MK_LBUTTON, 200, 0);
+    press(bar, WM_LBUTTONUP, 0, 200, 0);
+    expectNothing(bar, 300, "press, mouse move and release on a zero-width bar");
+
+    seekbar::setRange(bar, 0);
+    click(bar, 0);
+    expectNothing(bar, 0, "click on a zero-width bar with no usable range");
+    seekbar::setRange(bar, 300);
+
+    seekbar::setPosition(bar, 120);
+    paint(bar);
+    expectNothing(bar, 300, "setPosition and repaint after a click on a zero-width bar");
+}
+
+static void testZeroWidthRecovery(HWND bar)
+{
+    seekbar::setRange(bar, 300);
+    SetWindowPos(bar, nullptr, 0, 0, 0, 24, SWP_NOZORDER | SWP_NOACTIVATE);
+    check(clientWidth(bar) == 0, "bar is zero-width before the recovery click, got " + std::to_string(clientWidth(bar)));
+    click(bar, 0);
+    drag(bar, 0, 50);
+    expectNothing(bar, 300, "click and drag on a zero-width bar before resizing");
+
+    MoveWindow(bar, 0, 0, 600, 24, TRUE);
+    int width = clientWidth(bar);
+    check(width > 0, "bar has a positive client width after the resize, got " + std::to_string(width));
+    expectClick(bar, 300, 3 * width / 4);
+    expectClick(bar, 300, width / 2);
+    expectClick(bar, 300, 0);
+}
+
+static void testZeroWidthFreshBar(HINSTANCE instance)
+{
+    HWND fresh = seekbar::create(parent, instance);
+    check(fresh != nullptr && IsWindow(fresh), "a fresh seek bar can be created for the zero-width case");
+    if (!fresh || !IsWindow(fresh))
+        return;
+
+    SetWindowPos(fresh, nullptr, 0, 80, 0, 24, SWP_NOZORDER | SWP_NOACTIVATE);
+    int width = clientWidth(fresh);
+    check(width == 0, "a never-laid-out bar has a client width of 0, got " + std::to_string(width));
+
+    seekbar::setRange(fresh, 300);
+    for (int x : {0, 1, 7, 32000}) {
+        click(fresh, x);
+        expectNothing(fresh, 300, "click at x=" + std::to_string(x) + " on a never-laid-out bar");
+    }
+    drag(fresh, 0, 20);
+    expectNothing(fresh, 300, "drag on a never-laid-out bar");
+
+    MoveWindow(fresh, 0, 80, 600, 24, TRUE);
+    int sized = clientWidth(fresh);
+    check(sized > 0, "the fresh bar has a positive client width after layout, got " + std::to_string(sized));
+    expectClick(fresh, 300, sized / 2);
+    expectClick(fresh, 300, 3 * sized / 4);
+
+    DestroyWindow(fresh);
+}
+
 static void testTwoBars(HINSTANCE instance, HWND bar)
 {
     HWND other = seekbar::create(parent, instance);
@@ -379,6 +460,9 @@ int main()
     testLengths(bar);
     testZeroLength(bar);
     testResize(bar);
+    testZeroWidthPostsNothing(bar);
+    testZeroWidthRecovery(bar);
+    testZeroWidthFreshBar(instance);
     testTwoBars(instance, bar);
     testHover(bar);
 

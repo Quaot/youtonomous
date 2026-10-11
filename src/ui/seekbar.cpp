@@ -237,7 +237,7 @@ LRESULT CALLBACK proc(HWND bar, UINT msg, WPARAM w_param, LPARAM l_param)
         return 0;
     case WM_LBUTTONDOWN:
         SetFocus(GetParent(bar));
-        if (state->length > 0) {
+        if (state->length > 0 && widthOf(bar) > 0) {
             clearHover(bar, *state);
             state->dragging = true;
             SetCapture(bar);
