@@ -32,7 +32,7 @@ void MarksPanel::create(const Context& context)
 
     start_label_ = addControl(context, L"STATIC", L"Start at", SS_LEFT, 0);
     start_edit_ = addControl(context, L"EDIT", L"", ES_AUTOHSCROLL, kStart, WS_EX_CLIENTEDGE);
-    set_start_button_ = addControl(context, L"BUTTON", L"Save", BS_PUSHBUTTON, kSetStart);
+    set_start_button_ = addControl(context, L"BUTTON", L"Save start", BS_PUSHBUTTON, kSetStart);
     go_start_button_ = addControl(context, L"BUTTON", L"Play from the start", BS_PUSHBUTTON, kGoStart);
     resume_button_ = addControl(context, L"BUTTON", L"Carry on", BS_PUSHBUTTON, kResume);
 

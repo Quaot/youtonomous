@@ -372,12 +372,14 @@ static void firstRun(const std::wstring& command_line, std::wstring& environment
         }
 
         setText(edits[1], L"0:20");
-        click(top, L"Save");
-        check(waitFor([&] { return savedVideo(library_file).value("start", -1) == 20; }, 3000), "Save saves the start point");
+        click(top, L"Save start");
+        check(waitFor([&] { return savedVideo(library_file).value("start", -1) == 20; }, 3000), "Save start saves the start point");
     }
 
     HWND carry = button(top, L"Carry on");
     check(carry != nullptr && !IsWindowEnabled(carry), "carrying on is off until you have stopped somewhere");
+    check(button(top, L"Break") != nullptr, "a break button is shown");
+    check(button(top, L"Save start") != nullptr, "the start point button has a name of its own");
 
     key(top, VK_HOME);
     check(waitFor([&] { return within(playbackTime(top), 20, 21); }, 5000), "Home goes to the start point" + got(playbackTime(top)));
@@ -452,7 +454,6 @@ static void secondRun(const std::wstring& command_line, std::wstring& environmen
     check(studied() <= 10, "the logged block counts real time, not sped-up time" + got(studied()));
     check(labelStartingWith(top, L"Studied today") != L"", "the totals line is shown");
 
-    check(button(top, L"Break") != nullptr, "a break button is shown");
     HWND silence = button(top, L"Silent study");
     check(silence != nullptr, "a silent study box is shown");
     if (silence) {
