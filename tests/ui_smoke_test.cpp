@@ -348,6 +348,46 @@ static void firstRun(const std::wstring& command_line, std::wstring& environment
     check(clickSeekBar(top, 3, 4), "the seek bar has a width to be clicked on");
     check(waitFor([&] { return within(playbackTime(top), 28, 32); }, 5000), "clicking three quarters along the bar seeks to about 30 s" + got(playbackTime(top)));
 
+    std::vector<HWND> guard_bars = children(top, L"YoutonomousSeekBar");
+    HWND play_button = button(top, L"Play");
+    check(!guard_bars.empty() && play_button != nullptr, "the seek bar and the play button can both be found");
+    if (!guard_bars.empty() && play_button != nullptr) {
+        HWND guard_bar = guard_bars[0];
+        auto bar_width = [&] {
+            RECT bar{};
+            return GetClientRect(guard_bar, &bar) ? static_cast<int>(bar.right) : -1;
+        };
+        auto play_box = [&] {
+            RECT box{};
+            GetWindowRect(play_button, &box);
+            return box;
+        };
+
+        int laid_out_width = bar_width();
+        RECT laid_out_play = play_box();
+        check(laid_out_width > 0, "the seek bar has a width to start from" + got(laid_out_width));
+
+        auto keeps_layout = [&](WPARAM mode, int width, int height, const std::string& what) {
+            SendMessageW(top, WM_SIZE, mode, MAKELPARAM(width, height));
+            RECT play_now = play_box();
+            check(bar_width() == laid_out_width, "the seek bar keeps its width after " + what + got(bar_width()));
+            check(EqualRect(&play_now, &laid_out_play) != 0, "the play button stays where it was after " + what);
+        };
+        keeps_layout(SIZE_RESTORED, 0, 0, "a resize to no area");
+        keeps_layout(SIZE_MINIMIZED, 0, 0, "being minimised");
+        keeps_layout(SIZE_RESTORED, 1024, 0, "a resize with no height");
+        keeps_layout(SIZE_RESTORED, 0, 700, "a resize with no width");
+
+        RECT frame{};
+        GetWindowRect(top, &frame);
+        int frame_width = frame.right - frame.left;
+        int frame_height = frame.bottom - frame.top;
+        SetWindowPos(top, nullptr, 0, 0, frame_width - 100, frame_height - 60, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+        check(waitFor([&] { return bar_width() < laid_out_width; }, 15000), "the seek bar narrows when the window really shrinks" + got(bar_width()));
+        SetWindowPos(top, nullptr, 0, 0, frame_width, frame_height, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+        check(waitFor([&] { return bar_width() == laid_out_width; }, 15000), "the seek bar widens again when the window is put back" + got(bar_width()));
+    }
+
     int before = markCount(top);
     key(top, 'B');
     check(waitFor([&] { return markCount(top) == before + 1; }, 3000), "B adds a bookmark" + got(markCount(top)));

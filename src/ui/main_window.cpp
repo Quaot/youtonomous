@@ -147,8 +147,12 @@ void MainWindow::setFullscreen(bool fullscreen)
 
         MONITORINFO monitor{};
         monitor.cbSize = sizeof monitor;
-        GetMonitorInfoW(MonitorFromWindow(hwnd_, MONITOR_DEFAULTTONEAREST), &monitor);
+        if (!GetMonitorInfoW(MonitorFromWindow(hwnd_, MONITOR_DEFAULTTONEAREST), &monitor))
+            return;
+
         const RECT& area = monitor.rcMonitor;
+        if (area.right <= area.left || area.bottom <= area.top)
+            return;
 
         fullscreen_ = true;
         library_panel_.setVisible(false);
@@ -259,6 +263,9 @@ void MainWindow::createControls()
 
 void MainWindow::layout(int width, int height)
 {
+    if (width <= 0 || height <= 0)
+        return;
+
     library_panel_.layout(height);
     player_panel_.layout(width, height);
     marks_panel_.layout(width, height);
