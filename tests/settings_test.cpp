@@ -23,7 +23,7 @@ static fs::path root;
 static const std::vector<std::string> field_keys = {
     "backend", "videos_folder", "window_x", "window_y", "window_width",
     "window_height", "maximized", "volume", "speed", "pitch", "keep_pitch",
-    "silence_work"};
+    "silence_work", "loop_session"};
 
 static void writeFile(const fs::path& path, const std::string& content)
 {
@@ -57,7 +57,8 @@ static std::string describe(const Settings& settings)
          + " speed=" + formatDouble(settings.speed)
          + " pitch=" + std::to_string(settings.pitch)
          + " keep_pitch=" + std::string(settings.keep_pitch ? "true" : "false")
-         + " silence_work=" + std::string(settings.silence_work ? "true" : "false") + "}";
+         + " silence_work=" + std::string(settings.silence_work ? "true" : "false")
+         + " loop_session=" + std::string(settings.loop_session ? "true" : "false") + "}";
 }
 
 static bool sameSettings(const Settings& a, const Settings& b)
@@ -66,7 +67,8 @@ static bool sameSettings(const Settings& a, const Settings& b)
         && a.window_x == b.window_x && a.window_y == b.window_y
         && a.window_width == b.window_width && a.window_height == b.window_height
         && a.maximized == b.maximized && a.volume == b.volume && a.speed == b.speed
-        && a.pitch == b.pitch && a.keep_pitch == b.keep_pitch && a.silence_work == b.silence_work;
+        && a.pitch == b.pitch && a.keep_pitch == b.keep_pitch && a.silence_work == b.silence_work
+        && a.loop_session == b.loop_session;
 }
 
 static Settings tryLoad(const fs::path& file, const std::string& name)
@@ -104,6 +106,7 @@ static json baseJson()
     document["pitch"] = 3;
     document["keep_pitch"] = false;
     document["silence_work"] = true;
+    document["loop_session"] = true;
     return document;
 }
 
@@ -122,6 +125,7 @@ static Settings baseSettings()
     settings.pitch = 3;
     settings.keep_pitch = false;
     settings.silence_work = true;
+    settings.loop_session = true;
     return settings;
 }
 
@@ -152,6 +156,8 @@ static void resetField(Settings& settings, const std::string& key)
         settings.keep_pitch = defaults.keep_pitch;
     else if (key == "silence_work")
         settings.silence_work = defaults.silence_work;
+    else if (key == "loop_session")
+        settings.loop_session = defaults.loop_session;
 }
 
 static Settings loadText(const std::string& content, const std::string& name)
@@ -218,6 +224,14 @@ static void checkSilenceWork(bool given, bool wanted)
                   "silence_work " + std::string(given ? "true" : "false") + " loads as " + std::string(wanted ? "true" : "false"));
 }
 
+static void checkLoopSession(bool given, bool wanted)
+{
+    Settings expected = baseSettings();
+    expected.loop_session = wanted;
+    checkBaseWith("loop_session", given, expected,
+                  "loop_session " + std::string(given ? "true" : "false") + " loads as " + std::string(wanted ? "true" : "false"));
+}
+
 static void checkWidth(int given, int wanted)
 {
     Settings expected = baseSettings();
@@ -265,6 +279,7 @@ static void testDefaults()
     check(settings.pitch == 0, "default pitch is 0, got " + std::to_string(settings.pitch));
     check(settings.keep_pitch, "default keep_pitch is true");
     check(!settings.silence_work, "default silence_work is false");
+    check(!settings.loop_session, "default loop_session is false");
 }
 
 static void testMissingFile()
@@ -366,6 +381,18 @@ static void testWrongTypes()
         {"silence_work", json::array()},
         {"silence_work", json::object()},
         {"silence_work", json::object({{"silence_work", true}})},
+        {"loop_session", 1},
+        {"loop_session", 0},
+        {"loop_session", -1},
+        {"loop_session", 1.5},
+        {"loop_session", "true"},
+        {"loop_session", "false"},
+        {"loop_session", ""},
+        {"loop_session", nullptr},
+        {"loop_session", json::array({true})},
+        {"loop_session", json::array()},
+        {"loop_session", json::object()},
+        {"loop_session", json::object({{"loop_session", true}})},
     };
     for (const char* key : {"window_x", "window_y", "window_width", "window_height", "volume"}) {
         cases.push_back({key, "500"});
@@ -394,6 +421,7 @@ static void testWrongTypes()
     all_wrong["pitch"] = "3";
     all_wrong["keep_pitch"] = 1;
     all_wrong["silence_work"] = "yes";
+    all_wrong["loop_session"] = "yes";
     checkLoads(all_wrong.dump(), Settings(), "every field with the wrong type gives default settings");
 }
 
@@ -583,6 +611,7 @@ static void testRoundTrips()
         check(document.value("pitch", json()) == json(settings.pitch), "saved pitch value is stored under pitch");
         check(document.value("keep_pitch", json()) == json(settings.keep_pitch), "saved keep_pitch value is stored under keep_pitch");
         check(document.value("silence_work", json()) == json(settings.silence_work), "saved silence_work value is stored under silence_work");
+        check(document.value("loop_session", json()) == json(settings.loop_session), "saved loop_session value is stored under loop_session");
     }
 
     json clamped = baseJson();
@@ -771,12 +800,15 @@ static void testSilenceWorkRoundTrips()
     for (bool silence_work : {true, false}) {
         for (bool keep_pitch : {true, false}) {
             for (bool maximized : {true, false}) {
-                Settings settings = baseSettings();
-                settings.silence_work = silence_work;
-                settings.keep_pitch = keep_pitch;
-                settings.maximized = maximized;
-                checkRoundTrip(settings, "flags-" + std::string(silence_work ? "s" : "-") + std::string(keep_pitch ? "k" : "-")
-                                             + std::string(maximized ? "m" : "-"));
+                for (bool loop_session : {true, false}) {
+                    Settings settings = baseSettings();
+                    settings.silence_work = silence_work;
+                    settings.keep_pitch = keep_pitch;
+                    settings.maximized = maximized;
+                    settings.loop_session = loop_session;
+                    checkRoundTrip(settings, "flags-" + std::string(silence_work ? "s" : "-") + std::string(keep_pitch ? "k" : "-")
+                                                 + std::string(maximized ? "m" : "-") + std::string(loop_session ? "l" : "-"));
+                }
             }
         }
     }
@@ -849,6 +881,110 @@ static void testSettingsFileWithoutSilenceWork()
     check(trySave(settings, file, "no-silence reenable"), "saving with silence_work back on returns true");
     Settings back = tryLoad(file, "silence_work back on");
     check(sameSettings(back, settings), "turning silence_work back on survives a save and load, got " + describe(back));
+}
+
+static void testLoopSession()
+{
+    checkLoopSession(true, true);
+    checkLoopSession(false, false);
+
+    Settings alone;
+    alone.loop_session = true;
+    checkLoads("{\"loop_session\": true}", alone, "loop_session true on its own loads as true and the other fields default");
+
+    Settings off;
+    checkLoads("{\"loop_session\": false}", off, "loop_session false on its own loads as false and the other fields default");
+
+    checkLoads("{\"Loop_Session\": true}", Settings(), "loop_session is read case-sensitively");
+    checkLoads("{\"loopsession\": true}", Settings(), "a key without the underscore is not loop_session");
+
+    json without = baseJson();
+    without.erase("loop_session");
+    Settings expected = baseSettings();
+    expected.loop_session = false;
+    checkLoads(without.dump(), expected, "a missing loop_session falls back to false and the other fields load");
+}
+
+static void testLoopSessionRoundTrips()
+{
+    for (bool loop_session : {true, false}) {
+        Settings settings = baseSettings();
+        settings.loop_session = loop_session;
+        checkRoundTrip(settings, "loop-" + std::string(loop_session ? "true" : "false"));
+    }
+
+    Settings on_defaults;
+    on_defaults.loop_session = true;
+    checkRoundTrip(on_defaults, "loop-true-otherwise-default");
+
+    fs::path file = root / "loop-only" / "settings.json";
+    Settings saved = baseSettings();
+    saved.loop_session = true;
+    check(trySave(saved, file, "loop_session save"), "saveSettings() with loop_session true returns true");
+    json document;
+    bool parsed = false;
+    try {
+        document = json::parse(readFile(file));
+        parsed = true;
+    } catch (...) {
+    }
+    check(parsed && document.is_object(), "the file saved with loop_session true is a valid JSON object");
+    if (parsed && document.is_object()) {
+        check(document.contains("loop_session"), "the saved file has the loop_session key");
+        check(document.value("loop_session", json()) == json(true),
+              "the saved loop_session is the boolean true, got " + document.value("loop_session", json()).dump());
+    }
+
+    saved.loop_session = false;
+    check(trySave(saved, file, "loop_session off save"), "saveSettings() with loop_session false returns true");
+    parsed = false;
+    try {
+        document = json::parse(readFile(file));
+        parsed = true;
+    } catch (...) {
+    }
+    check(parsed && document.is_object(), "the file saved with loop_session false is a valid JSON object");
+    if (parsed && document.is_object())
+        check(document.value("loop_session", json()) == json(false),
+              "the saved loop_session is the boolean false, got " + document.value("loop_session", json()).dump());
+    Settings loaded = tryLoad(file, "loop_session off load");
+    check(sameSettings(loaded, saved), "loop_session false round trips with every other field, got " + describe(loaded));
+}
+
+static void testSettingsFileWithoutLoopSession()
+{
+    fs::path file = root / "no-loop" / "settings.json";
+    Settings settings = baseSettings();
+    settings.loop_session = true;
+    check(trySave(settings, file, "no-loop setup"), "saveSettings() for the no-loop setup returns true");
+
+    json document;
+    bool parsed = false;
+    try {
+        document = json::parse(readFile(file));
+        parsed = true;
+    } catch (...) {
+    }
+    check(parsed, "the file used to build a settings file without loop_session is valid JSON");
+    if (!parsed || !document.is_object())
+        return;
+
+    document.erase("loop_session");
+    check(!document.contains("loop_session"), "the older settings file has no loop_session key");
+    writeFile(file, document.dump());
+
+    Settings expected = baseSettings();
+    expected.loop_session = false;
+    Settings loaded = tryLoad(file, "settings file without loop_session");
+    check(sameSettings(loaded, expected), "a settings file without loop_session loads as false and keeps its other values, got " + describe(loaded));
+
+    check(trySave(loaded, file, "no-loop resave"), "saving a settings file loaded without loop_session returns true");
+    Settings again = tryLoad(file, "settings file without loop_session resaved");
+    check(sameSettings(again, expected), "the resaved settings file loads the same, got " + describe(again));
+
+    check(trySave(settings, file, "no-loop reenable"), "saving with loop_session back on returns true");
+    Settings back = tryLoad(file, "loop_session back on");
+    check(sameSettings(back, settings), "turning loop_session back on survives a save and load, got " + describe(back));
 }
 
 static void testPitchRoundTrips()
@@ -927,6 +1063,9 @@ int main()
     testSilenceWork();
     testSilenceWorkRoundTrips();
     testSettingsFileWithoutSilenceWork();
+    testLoopSession();
+    testLoopSessionRoundTrips();
+    testSettingsFileWithoutLoopSession();
     testOldSettingsFile();
 
     fs::remove_all(root, error);

@@ -63,7 +63,7 @@ private:
 
     void updateSession();
     void skipBlock();
-    void applyVolume();
+    void applyVolume(bool immediate = false);
     void recordStudy(const std::string& label);
     std::string currentBlockLabel() const;
     bool currentBlockIsRest() const;

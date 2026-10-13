@@ -27,7 +27,9 @@ struct SessionAdvice {
 
 std::vector<Block> blocksOf(const Video& video);
 int blockAt(const std::vector<Block>& blocks, int position);
-SessionAdvice advance(SessionState& state, const std::vector<Block>& blocks, int position, double seconds, bool playing);
+SessionAdvice advance(SessionState& state, const std::vector<Block>& blocks, int position, double seconds, bool playing, bool loop = false);
 SessionAdvice skip(SessionState& state, const std::vector<Block>& blocks, int position, bool bank);
 int remaining(const SessionState& state, const std::vector<Block>& blocks);
 int sessionVolume(const SessionState& state, const std::vector<Block>& blocks, bool silence_work, int wanted);
+int loopTarget(const std::vector<Block>& blocks);
+int fadeStep(int current, int target, int step);

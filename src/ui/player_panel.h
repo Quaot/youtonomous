@@ -29,6 +29,8 @@ public:
 
     void showBreakLabel(bool resting);
     void showSilence(bool silence);
+    void showLoop(bool loop);
+    bool loopSetting() const;
     bool silenceSetting() const;
 
     void setPitchAvailable(bool available);
@@ -56,6 +58,7 @@ private:
     HWND session_label_ = nullptr;
     HWND totals_label_ = nullptr;
     HWND silence_box_ = nullptr;
+    HWND loop_box_ = nullptr;
     bool fullscreen_ = false;
     bool keep_pitch_shown_ = true;
 };

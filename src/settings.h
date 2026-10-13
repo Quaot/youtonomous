@@ -16,6 +16,7 @@ struct Settings {
     int pitch = 0;
     bool keep_pitch = true;
     bool silence_work = false;
+    bool loop_session = false;
 };
 
 Settings loadSettings(const std::filesystem::path& file);

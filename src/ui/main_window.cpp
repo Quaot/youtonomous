@@ -202,7 +202,7 @@ LRESULT MainWindow::handle(UINT msg, WPARAM w_param, LPARAM l_param)
     case WM_HSCROLL:
         if (player_panel_.isVolumeBar(reinterpret_cast<HWND>(l_param))) {
             wanted_volume_ = player_panel_.volumeSetting();
-            applyVolume();
+            applyVolume(true);
         }
         return 0;
     case WM_TIMER:
@@ -255,6 +255,7 @@ void MainWindow::createControls()
 
     player_panel_.showVolume(player_->volume());
     player_panel_.showSilence(settings_.silence_work);
+    player_panel_.showLoop(settings_.loop_session);
     player_panel_.showSpeed(player_->speed());
     player_panel_.setPitchAvailable(player_->pitchSupported());
     player_panel_.showPitch(player_->pitchSupported() ? player_->pitch() : settings_.pitch);
@@ -318,6 +319,10 @@ void MainWindow::onCommand(int id, int code)
             settings_.silence_work = player_panel_.silenceSetting();
             applyVolume();
         }
+        break;
+    case kLoop:
+        if (code == BN_CLICKED)
+            settings_.loop_session = player_panel_.loopSetting();
         break;
     case kVideo:
         if (code == STN_DBLCLK)
@@ -384,7 +389,7 @@ void MainWindow::updateSession()
 
     std::string finished = currentBlockLabel();
     bool finished_rest = currentBlockIsRest();
-    SessionAdvice advice = advance(session_, blocks_, player_->time(), seconds, playing);
+    SessionAdvice advice = advance(session_, blocks_, player_->time(), seconds, playing, settings_.loop_session);
     if (advice.block_done && !finished_rest)
         recordStudy(finished);
     if (advice.seek_to >= 0)
@@ -439,13 +444,17 @@ void MainWindow::skipBlock()
         player_->seek(advice.seek_to);
 }
 
-void MainWindow::applyVolume()
+void MainWindow::applyVolume(bool immediate)
 {
-    int want = sessionVolume(session_, blocks_, settings_.silence_work, wanted_volume_);
-    if (want == applied_volume_)
+    int target = sessionVolume(session_, blocks_, settings_.silence_work, wanted_volume_);
+    int next = target;
+    if (!immediate && applied_volume_ >= 0)
+        next = fadeStep(applied_volume_, target, std::max(1, wanted_volume_ / 12));
+
+    if (next == applied_volume_)
         return;
-    applied_volume_ = want;
-    player_->setVolume(want);
+    applied_volume_ = next;
+    player_->setVolume(next);
 }
 
 std::string MainWindow::studyLabel() const

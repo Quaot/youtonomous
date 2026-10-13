@@ -135,14 +135,14 @@ struct RunResult {
     double shortest_loop_owed = 1e9;
 };
 
-static RunResult playBlock(SessionState& state, const std::vector<Block>& blocks, int index, double rate, double tick)
+static RunResult playBlock(SessionState& state, const std::vector<Block>& blocks, int index, double rate, double tick, bool loop = false)
 {
     RunResult result;
     double position = blocks[index].start;
     double length = blocks[index].end - blocks[index].start;
     for (int i = 0; i < 100000; ++i) {
         double owed = length - state.elapsed;
-        SessionAdvice advice = advance(state, blocks, static_cast<int>(position), tick, true);
+        SessionAdvice advice = advance(state, blocks, static_cast<int>(position), tick, true, loop);
         result.real_seconds += tick;
         if (advice.block_done) {
             result.finished = true;
@@ -167,11 +167,17 @@ static void testPomodoroBlocks()
 {
     std::vector<Block> blocks = blocksOf(videoWith(7200, {mark(0, "Pomodoro 1", true), mark(3000, "Guided Break 1", true),
                                                           mark(3600, "Pomodoro 2", true), mark(6600, "Guided Break 2", true)}));
-    check(blocks.size() == 4, "a 50/10 Pomodoro video gives 4 blocks, got " + describe(blocks));
+    check(blocks.size() == 3, "a 50/10 Pomodoro video ending on a break gives 3 blocks, got " + describe(blocks));
     checkBlock(blocks, 0, "Pomodoro 1", 0, 3000, false, "50/10 Pomodoro");
     checkBlock(blocks, 1, "Guided Break 1", 3000, 3600, true, "50/10 Pomodoro");
     checkBlock(blocks, 2, "Pomodoro 2", 3600, 6600, false, "50/10 Pomodoro");
-    checkBlock(blocks, 3, "Guided Break 2", 6600, 7200, true, "50/10 Pomodoro");
+
+    std::vector<Block> ends_on_work = blocksOf(videoWith(7200, {mark(0, "Pomodoro 1", true), mark(3000, "Guided Break 1", true),
+                                                                mark(3600, "Pomodoro 2", true), mark(6600, "Guided Break 2", true),
+                                                                mark(7000, "Pomodoro 3", true)}));
+    check(ends_on_work.size() == 5, "a Pomodoro video ending on work keeps all 5 blocks, got " + describe(ends_on_work));
+    checkBlock(ends_on_work, 3, "Guided Break 2", 6600, 7000, true, "50/10 Pomodoro ending on work");
+    checkBlock(ends_on_work, 4, "Pomodoro 3", 7000, 7200, false, "50/10 Pomodoro ending on work");
 }
 
 static void testNoBlocks()
@@ -197,9 +203,8 @@ static void testNonChapterMarksIgnored()
     std::vector<Block> mixed = blocksOf(videoWith(3000, {mark(0, "Pomodoro 1", true), mark(300, "Nice break idea", false),
                                                          mark(900, "Come back here", false), mark(1500, "Guided Break 1", true),
                                                          mark(2000, "Lovely music", false)}));
-    check(mixed.size() == 2, "user marks between chapters do not make blocks, got " + describe(mixed));
+    check(mixed.size() == 1, "user marks between chapters do not make blocks, got " + describe(mixed));
     checkBlock(mixed, 0, "Pomodoro 1", 0, 1500, false, "user marks mixed in");
-    checkBlock(mixed, 1, "Guided Break 1", 1500, 3000, true, "user marks mixed in");
 
     std::vector<Block> non_chapter_intro = blocksOf(videoWith(1200, {mark(0, "Pomodoro 1", true), mark(600, "Intro thought", false)}));
     check(non_chapter_intro.size() == 1, "a non-chapter intro mark changes nothing, got " + describe(non_chapter_intro));
@@ -210,11 +215,10 @@ static void testChaptersOutOfOrder()
 {
     std::vector<Block> blocks = blocksOf(videoWith(7200, {mark(6600, "Guided Break 2", true), mark(0, "Pomodoro 1", true),
                                                           mark(3600, "Pomodoro 2", true), mark(3000, "Guided Break 1", true)}));
-    check(blocks.size() == 4, "unsorted chapters still give 4 blocks, got " + describe(blocks));
+    check(blocks.size() == 3, "unsorted chapters still give 3 blocks once the trailing break goes, got " + describe(blocks));
     checkBlock(blocks, 0, "Pomodoro 1", 0, 3000, false, "unsorted chapters");
     checkBlock(blocks, 1, "Guided Break 1", 3000, 3600, true, "unsorted chapters");
     checkBlock(blocks, 2, "Pomodoro 2", 3600, 6600, false, "unsorted chapters");
-    checkBlock(blocks, 3, "Guided Break 2", 6600, 7200, true, "unsorted chapters");
 }
 
 static void testZeroLengthAndInvertedBlocks()
@@ -238,16 +242,22 @@ static void testZeroLengthAndInvertedBlocks()
 
 static void testRestLabels()
 {
-    std::vector<Block> blocks = blocksOf(videoWith(600, {mark(0, "Break 1", true), mark(100, "Guided Break 2", true),
-                                                         mark(200, "SHORT BREAK", true), mark(300, "bReAk time", true),
-                                                         mark(400, "Deep Work", true), mark(500, "Breakfast review", true)}));
-    check(blocks.size() == 6, "all six chapters give blocks, got " + describe(blocks));
-    check(blocks.size() == 6 && blocks[0].rest, "\"Break 1\" is a rest block, got " + describe(blocks));
-    check(blocks.size() == 6 && blocks[1].rest, "\"Guided Break 2\" is a rest block, got " + describe(blocks));
-    check(blocks.size() == 6 && blocks[2].rest, "\"SHORT BREAK\" is a rest block, got " + describe(blocks));
-    check(blocks.size() == 6 && blocks[3].rest, "\"bReAk time\" is a rest block, got " + describe(blocks));
-    check(blocks.size() == 6 && !blocks[4].rest, "\"Deep Work\" is not a rest block, got " + describe(blocks));
-    check(blocks.size() == 6 && blocks[5].rest, "\"Breakfast review\" contains break so it is a rest block, got " + describe(blocks));
+    std::vector<Block> blocks = blocksOf(videoWith(1200, {mark(0, "Break 1", true), mark(100, "Pomodoro 1", true),
+                                                          mark(200, "Guided Break 2", true), mark(300, "Pomodoro 2", true),
+                                                          mark(400, "SHORT BREAK", true), mark(500, "Pomodoro 3", true),
+                                                          mark(600, "bReAk time", true), mark(700, "Pomodoro 4", true),
+                                                          mark(800, "Deep Work", true), mark(900, "Pomodoro 5", true),
+                                                          mark(1000, "Breakfast review", true), mark(1100, "Pomodoro 6", true)}));
+    check(blocks.size() == 12, "all twelve chapters give blocks, got " + describe(blocks));
+    check(blocks.size() == 12 && blocks[0].rest, "\"Break 1\" is a rest block, got " + describe(blocks));
+    check(blocks.size() == 12 && blocks[2].rest, "\"Guided Break 2\" is a rest block, got " + describe(blocks));
+    check(blocks.size() == 12 && blocks[4].rest, "\"SHORT BREAK\" is a rest block, got " + describe(blocks));
+    check(blocks.size() == 12 && blocks[6].rest, "\"bReAk time\" is a rest block, got " + describe(blocks));
+    check(blocks.size() == 12 && !blocks[8].rest, "\"Deep Work\" is not a rest block, got " + describe(blocks));
+    check(blocks.size() == 12 && blocks[10].rest, "\"Breakfast review\" contains break so it is a rest block, got " + describe(blocks));
+    check(blocks.size() == 12 && !blocks[1].rest && !blocks[3].rest && !blocks[5].rest && !blocks[7].rest && !blocks[9].rest
+              && !blocks[11].rest,
+          "the plain Pomodoro chapters between them are work blocks, got " + describe(blocks));
 }
 
 static void testFillerAtStart()
@@ -277,15 +287,53 @@ static void testFillerEverywhere()
 {
     std::vector<Block> blocks = blocksOf(videoWith(7200, {mark(0, "Intro", true), mark(67, "Pomodoro 1", true),
                                                           mark(3067, "Break 1", true), mark(3667, "Outro", true)}));
-    check(blocks.size() == 2, "Intro/Pomodoro 1/Break 1/Outro gives exactly two blocks, got " + describe(blocks));
+    check(blocks.size() == 1, "Intro/Pomodoro 1/Break 1/Outro gives exactly one block, got " + describe(blocks));
     checkBlock(blocks, 0, "Pomodoro 1", 67, 3067, false, "filler at both ends");
-    checkBlock(blocks, 1, "Break 1", 3067, 3667, true, "filler at both ends");
 
     std::vector<Block> all_filler = blocksOf(videoWith(1200, {mark(0, "Intro", true), mark(600, "Outro", true)}));
     check(all_filler.empty(), "a video of nothing but filler gives no blocks, got " + describe(all_filler));
 
     std::vector<Block> one_filler = blocksOf(videoWith(1200, {mark(0, "INTRODUCTION", true)}));
     check(one_filler.empty(), "a lone filler chapter gives no blocks, got " + describe(one_filler));
+}
+
+static void testTrailingBreakIsNotABlock()
+{
+    std::vector<Block> one = blocksOf(videoWith(1200, {mark(0, "Pomodoro 1", true), mark(600, "Break 1", true)}));
+    check(one.size() == 1, "a single trailing break is dropped, got " + describe(one));
+    checkBlock(one, 0, "Pomodoro 1", 0, 600, false, "one trailing break");
+
+    std::vector<Block> two = blocksOf(videoWith(1800, {mark(0, "Pomodoro 1", true), mark(600, "Break 1", true),
+                                                       mark(1200, "Break 2", true)}));
+    check(two.size() == 1, "two trailing breaks are both dropped, got " + describe(two));
+    checkBlock(two, 0, "Pomodoro 1", 0, 600, false, "two trailing breaks");
+
+    std::vector<Block> three = blocksOf(videoWith(2400, {mark(0, "Pomodoro 1", true), mark(600, "Break 1", true),
+                                                         mark(1200, "Break 2", true), mark(1800, "Break 3", true)}));
+    check(three.size() == 1, "three trailing breaks are all dropped, got " + describe(three));
+    checkBlock(three, 0, "Pomodoro 1", 0, 600, false, "three trailing breaks");
+
+    std::vector<Block> only_a_break = blocksOf(videoWith(600, {mark(0, "Break 1", true)}));
+    check(only_a_break.empty(), "a single break as the only chapter gives no blocks, got " + describe(only_a_break));
+
+    std::vector<Block> all_breaks = blocksOf(videoWith(1800, {mark(0, "Break 1", true), mark(600, "SHORT BREAK", true),
+                                                              mark(1200, "Guided Break 3", true)}));
+    check(all_breaks.empty(), "a video of nothing but breaks gives no blocks, got " + describe(all_breaks));
+
+    std::vector<Block> break_then_outro = blocksOf(videoWith(1800, {mark(0, "Pomodoro 1", true), mark(600, "Break 1", true),
+                                                                    mark(1200, "Outro", true)}));
+    check(break_then_outro.size() == 1, "a break left trailing by a dropped outro goes too, got " + describe(break_then_outro));
+    checkBlock(break_then_outro, 0, "Pomodoro 1", 0, 600, false, "break before an outro");
+
+    std::vector<Block> kept = blocksOf(videoWith(1800, {mark(0, "Pomodoro 1", true), mark(600, "Break 1", true),
+                                                        mark(1200, "Pomodoro 2", true)}));
+    check(kept.size() == 3, "a break with work after it stays, got " + describe(kept));
+    checkBlock(kept, 1, "Break 1", 600, 1200, true, "break with work after it");
+
+    std::vector<Block> boundary = blocksOf(videoWith(1800, {mark(0, "Pomodoro 1", true), mark(600, "Pomodoro 2", true),
+                                                            mark(1500, "Break 1", true)}));
+    check(boundary.size() == 2, "dropping a trailing break leaves two blocks, got " + describe(boundary));
+    checkBlock(boundary, 1, "Pomodoro 2", 600, 1500, false, "boundary after a dropped trailing break");
 }
 
 static void testFillerCaseVariations()
@@ -695,13 +743,13 @@ static void testTenThousandSecondVideo()
                                     mark(3667, "Pomodoro 2", true), mark(6667, "Guided Break 2", true),
                                     mark(7265, "Pomodoro 3", true), mark(10196, "Break 3", true)});
     std::vector<Block> blocks = blocksOf(video);
-    check(blocks.size() == 6, "the real video gives 6 blocks, got " + describe(blocks));
+    check(blocks.size() == 5, "the real video gives 5 blocks, got " + describe(blocks));
     checkBlock(blocks, 0, "Pomodoro 1", 67, 3067, false, "real video");
     checkBlock(blocks, 1, "Guided Break 1", 3067, 3667, true, "real video");
     checkBlock(blocks, 2, "Pomodoro 2", 3667, 6667, false, "real video");
     checkBlock(blocks, 3, "Guided Break 2", 6667, 7265, true, "real video");
     checkBlock(blocks, 4, "Pomodoro 3", 7265, 10196, false, "real video");
-    checkBlock(blocks, 5, "Break 3", 10196, 10303, true, "real video");
+    check(blockAt(blocks, 10196) == -1, "the padding at 10196 is in no block, got " + std::to_string(blockAt(blocks, 10196)));
 
     check(blockAt(blocks, 0) == -1, "position 0 of the real video is inside the intro, got " + std::to_string(blockAt(blocks, 0)));
     check(blockAt(blocks, 66) == -1, "position 66 is still the intro, got " + std::to_string(blockAt(blocks, 66)));
@@ -723,7 +771,7 @@ static void testTenThousandSecondVideo()
 
     advance(state, blocks, 67, 0.25, true);
     check(state.block == 0, "the session begins once playback reaches 67, got " + describeState(state));
-    check(state.block == 0 && blocks.size() == 6 && blocks[state.block].label == "Pomodoro 1",
+    check(state.block == 0 && blocks.size() == 5 && blocks[state.block].label == "Pomodoro 1",
           "the session begins with Pomodoro 1, got " + describeState(state));
     check(remaining(state, blocks) == 2999, "Pomodoro 1 owes nearly its full 3000s at the start, got " + std::to_string(remaining(state, blocks)));
 }
@@ -1003,7 +1051,7 @@ static void testCutBreakShortOnTheRealVideo()
     SessionAdvice advice = skip(plain, blocks, 3200, false);
     check(advice.seek_to == 3667, "cutting Guided Break 1 short lands on Pomodoro 2 at 3667, got " + describeAdvice(advice));
     check(!advice.block_done, "cutting Guided Break 1 short finishes nothing, got " + describeAdvice(advice));
-    check(plain.block == 2 && blocks.size() == 6 && blocks[plain.block].label == "Pomodoro 2",
+    check(plain.block == 2 && blocks.size() == 5 && blocks[plain.block].label == "Pomodoro 2",
           "cutting Guided Break 1 short lands on Pomodoro 2, got " + describeState(plain));
     checkState(plain, 2, 0, "cutting Guided Break 1 short starts Pomodoro 2 with a fresh clock");
     checkNothingParked(plain, "cutting Guided Break 1 short parks nothing");
@@ -1022,7 +1070,7 @@ static void testCutBreakShortOnTheRealVideo()
     SessionAdvice cut = skip(banked, blocks, 3087, false);
     check(cut.seek_to == 1867, "cutting Guided Break 1 short hands Pomodoro 1 back at 1867, got " + describeAdvice(cut));
     check(!cut.block_done, "cutting Guided Break 1 short after a banked skip finishes nothing, got " + describeAdvice(cut));
-    check(banked.block == 0 && blocks.size() == 6 && blocks[banked.block].label == "Pomodoro 1",
+    check(banked.block == 0 && blocks.size() == 5 && blocks[banked.block].label == "Pomodoro 1",
           "cutting Guided Break 1 short returns to Pomodoro 1, got " + describeState(banked));
     checkState(banked, 0, 1800, "Pomodoro 1 comes back with its 1800s already spent");
     checkNothingParked(banked, "cutting Guided Break 1 short clears the parked fields");
@@ -1035,13 +1083,20 @@ static void testCutBreakShortOnTheRealVideo()
     check(owed.finish_seek == 3067, "the handed back Pomodoro 1 moves on to Guided Break 1, got " + std::to_string(owed.finish_seek));
     checkState(banked, 1, 0, "the handed back Pomodoro 1 moves on rather than looping back");
 
-    SessionState last_break;
-    last_break.block = 5;
-    last_break.elapsed = 10;
-    SessionState last_before = last_break;
-    SessionAdvice none = skip(last_break, blocks, 10200, true);
-    checkEmptyAdvice(none, "cutting Break 3 short gives empty advice");
-    checkSame(last_break, last_before, "cutting Break 3 short leaves the state alone");
+    SessionState second_break;
+    second_break.block = 3;
+    second_break.elapsed = 100;
+    SessionAdvice onwards = skip(second_break, blocks, 6800, false);
+    check(onwards.seek_to == 7265, "cutting Guided Break 2 short lands on Pomodoro 3 at 7265, got " + describeAdvice(onwards));
+    checkState(second_break, 4, 0, "cutting Guided Break 2 short starts Pomodoro 3 with a fresh clock");
+
+    SessionState last_work;
+    last_work.block = 4;
+    last_work.elapsed = 10;
+    SessionState last_before = last_work;
+    SessionAdvice none = skip(last_work, blocks, 10200, true);
+    checkEmptyAdvice(none, "the real video has no trailing break left to cut short");
+    checkSame(last_work, last_before, "skipping on the real video's last work block leaves the state alone");
 }
 
 static void testSkipWithNoBreakAhead()
@@ -1402,14 +1457,14 @@ static void testUnbankedSkipDoesNotComeBack()
 static void testSkipOnTheRealVideo()
 {
     std::vector<Block> blocks = realVideoBlocks();
-    check(blocks.size() == 6, "the real video gives 6 blocks for skipping, got " + describe(blocks));
+    check(blocks.size() == 5, "the real video gives 5 blocks for skipping, got " + describe(blocks));
 
     SessionState state;
     state.block = 0;
     state.elapsed = 600;
     SessionAdvice advice = skip(state, blocks, 1000, false);
     check(advice.seek_to == 3067, "skipping from inside Pomodoro 1 lands on Guided Break 1 at 3067, got " + describeAdvice(advice));
-    check(state.block == 1 && blocks.size() == 6 && blocks[state.block].label == "Guided Break 1",
+    check(state.block == 1 && blocks.size() == 5 && blocks[state.block].label == "Guided Break 1",
           "skipping from inside Pomodoro 1 lands on Guided Break 1, got " + describeState(state));
     checkState(state, 1, 0, "skipping from inside Pomodoro 1 starts the break with a fresh clock");
     checkNothingParked(state, "an unbanked skip on the real video parks nothing");
@@ -1424,17 +1479,18 @@ static void testSkipOnTheRealVideo()
     SessionState from_third;
     from_third.block = 4;
     from_third.elapsed = 100;
+    SessionState third_before = from_third;
     SessionAdvice third = skip(from_third, blocks, 8000, false);
-    check(third.seek_to == 10196, "skipping from inside Pomodoro 3 lands on Break 3 at 10196, got " + describeAdvice(third));
-    checkState(from_third, 5, 0, "skipping from inside Pomodoro 3 lands on Break 3");
+    checkEmptyAdvice(third, "skipping from inside Pomodoro 3 finds no break ahead and does nothing");
+    checkSame(from_third, third_before, "skipping from inside Pomodoro 3 leaves the state alone");
 
-    SessionState on_last_break;
-    on_last_break.block = 5;
-    on_last_break.elapsed = 10;
-    SessionState last_before = on_last_break;
-    SessionAdvice none = skip(on_last_break, blocks, 10200, false);
-    checkEmptyAdvice(none, "skipping on the real video's last break gives empty advice");
-    checkSame(on_last_break, last_before, "skipping on the real video's last break leaves the state alone");
+    SessionState banked_third;
+    banked_third.block = 4;
+    banked_third.elapsed = 100;
+    SessionState banked_third_before = banked_third;
+    SessionAdvice banked_third_advice = skip(banked_third, blocks, 8000, true);
+    checkEmptyAdvice(banked_third_advice, "a banked skip from inside Pomodoro 3 does nothing either");
+    checkSame(banked_third, banked_third_before, "a banked skip from inside Pomodoro 3 parks nothing");
 
     SessionState banked;
     banked.block = 0;
@@ -1450,7 +1506,7 @@ static void testSkipOnTheRealVideo()
     check(run.real_seconds >= 599.5 && run.real_seconds <= 600.5,
           "Guided Break 1 takes its full 600s after the banked skip, got " + std::to_string(run.real_seconds) + "s");
     check(run.finish_seek == 1867, "Guided Break 1 hands playback back to 1867, got " + std::to_string(run.finish_seek));
-    check(banked.block == 0 && blocks.size() == 6 && blocks[banked.block].label == "Pomodoro 1",
+    check(banked.block == 0 && blocks.size() == 5 && blocks[banked.block].label == "Pomodoro 1",
           "the banked skip returns to Pomodoro 1, got " + describeState(banked));
     checkState(banked, 0, 1800, "the banked skip returns to Pomodoro 1 with its 1800s already spent");
     checkNothingParked(banked, "the real video round trip clears the parked fields");
@@ -1619,6 +1675,269 @@ static void testSessionVolumeAfterASkip()
     check(sessionVolume(idle, blocks, true, 90) == 90, "a skip from the intro to a break plays, got " + std::to_string(sessionVolume(idle, blocks, true, 90)));
 }
 
+static void testLoopTargetOnEveryShapeOfList()
+{
+    std::vector<Block> none;
+    check(loopTarget(none) == -1, "an empty list has no loop target, got " + std::to_string(loopTarget(none)));
+
+    std::vector<Block> one_work = {block("Pomodoro 1", 0, 60, false)};
+    check(loopTarget(one_work) == 0, "a lone work block is its own loop target, got " + std::to_string(loopTarget(one_work)));
+
+    std::vector<Block> one_rest = {block("Break 1", 0, 40, true)};
+    check(loopTarget(one_rest) == 0, "a lone rest block is the loop target, got " + std::to_string(loopTarget(one_rest)));
+
+    std::vector<Block> all_work = {block("Pomodoro 1", 0, 60, false), block("Pomodoro 2", 60, 120, false),
+                                   block("Pomodoro 3", 120, 180, false)};
+    check(loopTarget(all_work) == 0, "with no rest block the loop target is the first block, got " + std::to_string(loopTarget(all_work)));
+
+    std::vector<Block> rest_first = {block("Break 1", 0, 40, true), block("Pomodoro 1", 40, 100, false)};
+    check(loopTarget(rest_first) == 0, "a rest block first is the loop target, got " + std::to_string(loopTarget(rest_first)));
+
+    check(loopTarget(threeBlocks()) == 1, "the loop target of the three block list is 1, got " + std::to_string(loopTarget(threeBlocks())));
+    check(loopTarget(breakBlocks()) == 1, "the loop target of the break list is 1, got " + std::to_string(loopTarget(breakBlocks())));
+
+    std::vector<Block> rest_late = {block("Pomodoro 1", 0, 60, false), block("Pomodoro 2", 60, 120, false),
+                                    block("Break 1", 120, 160, true), block("Pomodoro 3", 160, 220, false),
+                                    block("Break 2", 220, 260, true)};
+    check(loopTarget(rest_late) == 2, "the first rest block wins however late it comes, got " + std::to_string(loopTarget(rest_late)));
+
+    std::vector<Block> real = realVideoBlocks();
+    check(loopTarget(real) == 1, "the real video loops back to Guided Break 1 at index 1, got " + std::to_string(loopTarget(real)));
+    check(loopTarget(real) == 1 && real.size() == 5 && real[loopTarget(real)].label == "Guided Break 1",
+          "the real video's loop target is Guided Break 1, got " + describe(real));
+}
+
+static void testLoopingOffEndsTheSession()
+{
+    std::vector<Block> blocks = threeBlocks();
+
+    SessionState state;
+    state.block = 2;
+    state.elapsed = 59.9;
+    SessionAdvice advice = advance(state, blocks, 130, 0.25, true, false);
+    check(advice.block_done, "the last block still finishes with looping off, got " + describeAdvice(advice));
+    check(advice.seek_to == -1, "with looping off there is nowhere to seek after the last block, got " + describeAdvice(advice));
+    checkState(state, -1, 0, "with looping off the session ends after the last block");
+
+    SessionState omitted;
+    omitted.block = 2;
+    omitted.elapsed = 59.9;
+    SessionAdvice old_style = advance(omitted, blocks, 130, 0.25, true);
+    check(old_style.block_done && old_style.seek_to == -1, "omitting the loop argument means no looping, got " + describeAdvice(old_style));
+    checkState(omitted, -1, 0, "omitting the loop argument ends the session");
+}
+
+static void testLoopingAtTheEnd()
+{
+    std::vector<Block> blocks = {block("Pomodoro 1", 0, 60, false), block("Pomodoro 2", 60, 120, false),
+                                 block("Break 1", 120, 160, true), block("Pomodoro 3", 160, 220, false)};
+
+    SessionState last;
+    last.block = 3;
+    last.elapsed = 59.9;
+    SessionAdvice advice = advance(last, blocks, 200, 0.25, true, true);
+    check(advice.block_done, "finishing the last block with looping on is still a finish, got " + describeAdvice(advice));
+    check(advice.seek_to == 120, "looping seeks to the loop target's start, got " + describeAdvice(advice));
+    checkState(last, 2, 0, "looping goes to the loop target with a fresh clock");
+    check(remaining(last, blocks) == 40, "the looped-to block owes its whole length, got " + std::to_string(remaining(last, blocks)));
+
+    SessionState middle;
+    middle.block = 0;
+    middle.elapsed = 59.9;
+    SessionAdvice onwards = advance(middle, blocks, 30, 0.25, true, true);
+    check(onwards.block_done, "a middle block still finishes with looping on, got " + describeAdvice(onwards));
+    check(onwards.seek_to == 60, "looping does not divert a middle block, got " + describeAdvice(onwards));
+    checkState(middle, 1, 0, "finishing a middle block with looping on moves to the next one");
+
+    SessionState before_the_target;
+    before_the_target.block = 1;
+    before_the_target.elapsed = 59.9;
+    SessionAdvice to_rest = advance(before_the_target, blocks, 90, 0.25, true, true);
+    check(to_rest.seek_to == 120, "the block before the rest block moves on normally, got " + describeAdvice(to_rest));
+    checkState(before_the_target, 2, 0, "the block before the rest block moves to it as usual");
+
+    std::vector<Block> all_work = {block("Pomodoro 1", 100, 160, false), block("Pomodoro 2", 160, 220, false)};
+    SessionState no_rest;
+    no_rest.block = 1;
+    no_rest.elapsed = 59.9;
+    SessionAdvice to_first = advance(no_rest, all_work, 200, 0.25, true, true);
+    check(to_first.block_done, "finishing the last block of an all-work list is a finish, got " + describeAdvice(to_first));
+    check(to_first.seek_to == 100, "with no rest block looping goes back to the first block at 100, got " + describeAdvice(to_first));
+    checkState(no_rest, 0, 0, "with no rest block looping goes back to block 0");
+
+    std::vector<Block> alone = {block("Pomodoro 1", 100, 160, false)};
+    SessionState only;
+    only.block = 0;
+    only.elapsed = 59.9;
+    SessionAdvice again = advance(only, alone, 150, 0.25, true, true);
+    check(again.block_done, "a one-block list finishes its block, got " + describeAdvice(again));
+    check(again.seek_to == 100, "a one-block list loops back onto itself at 100, got " + describeAdvice(again));
+    checkState(only, 0, 0, "a one-block list loops back onto itself with a fresh clock");
+
+    std::vector<Block> rest_alone = {block("Guided Break 1", 60, 100, true)};
+    SessionState rest_only;
+    rest_only.block = 0;
+    rest_only.elapsed = 39.9;
+    SessionAdvice rest_again = advance(rest_only, rest_alone, 90, 0.25, true, true);
+    check(rest_again.seek_to == 60, "a one-rest-block list loops back onto itself at 60, got " + describeAdvice(rest_again));
+    checkState(rest_only, 0, 0, "a one-rest-block list loops back onto itself");
+
+    std::vector<Block> empty;
+    SessionState nothing;
+    SessionAdvice no_advice = advance(nothing, empty, 0, 0.25, true, true);
+    checkEmptyAdvice(no_advice, "looping with no blocks advises nothing");
+    checkState(nothing, -1, 0, "looping with no blocks leaves the state alone");
+}
+
+static void testLoopingWithAParkedBlock()
+{
+    std::vector<Block> blocks = {block("Pomodoro 1", 0, 60, false), block("Break 1", 60, 100, true),
+                                 block("Pomodoro 2", 100, 160, false)};
+
+    SessionState parked;
+    parked.block = 2;
+    parked.elapsed = 59.9;
+    parked.resume_block = 0;
+    parked.resume_elapsed = 25;
+    parked.resume_position = 25;
+    SessionAdvice advice = advance(parked, blocks, 130, 0.25, true, true);
+    check(advice.block_done, "finishing the last block with a parked block is a finish while looping, got " + describeAdvice(advice));
+    check(advice.seek_to == 25, "a parked block beats the loop target, got " + describeAdvice(advice));
+    checkState(parked, 0, 25, "the parked block comes back with its accrued time rather than the loop target");
+    checkNothingParked(parked, "handing the parked block back while looping clears the parked fields");
+
+    SessionState bad_park;
+    bad_park.block = 2;
+    bad_park.elapsed = 59.9;
+    bad_park.resume_block = 9;
+    bad_park.resume_elapsed = 25;
+    bad_park.resume_position = 25;
+    SessionAdvice bad = advance(bad_park, blocks, 130, 0.25, true, true);
+    check(bad.seek_to == 60, "a parked index past the end falls through to the loop target, got " + describeAdvice(bad));
+    checkState(bad_park, 1, 0, "a parked index past the end loops instead");
+
+    SessionState negative_park;
+    negative_park.block = 2;
+    negative_park.elapsed = 59.9;
+    negative_park.resume_block = -4;
+    SessionAdvice negative = advance(negative_park, blocks, 130, 0.25, true, true);
+    check(negative.seek_to == 60, "a negative parked index falls through to the loop target, got " + describeAdvice(negative));
+    checkState(negative_park, 1, 0, "a negative parked index loops instead");
+
+    SessionState after_the_loop;
+    after_the_loop.block = 2;
+    after_the_loop.elapsed = 59.9;
+    after_the_loop.resume_block = 0;
+    after_the_loop.resume_elapsed = 50;
+    after_the_loop.resume_position = 50;
+    advance(after_the_loop, blocks, 130, 0.25, true, true);
+    after_the_loop.elapsed = 59.9;
+    SessionAdvice second = advance(after_the_loop, blocks, 55, 0.25, true, true);
+    check(second.seek_to == 60, "the block handed back while looping moves on normally, got " + describeAdvice(second));
+    checkState(after_the_loop, 1, 0, "the block handed back while looping is not parked again");
+}
+
+static void testLoopingNeverEnds()
+{
+    std::vector<Block> blocks = realVideoBlocks();
+    check(blocks.size() == 5, "the looping run has 5 blocks to work with, got " + describe(blocks));
+
+    SessionState state;
+    state.block = 4;
+    std::string visited;
+    bool ended = false;
+    for (int step = 0; step < 9; ++step) {
+        int index = state.block;
+        if (index < 0 || index >= static_cast<int>(blocks.size())) {
+            ended = true;
+            break;
+        }
+        visited += blocks[index].label + " ";
+        RunResult run = playBlock(state, blocks, index, 1.0, 0.25, true);
+        check(run.finished, "block " + std::to_string(index) + " of the looping run finishes");
+        if (state.block < 0) {
+            ended = true;
+            break;
+        }
+        check(run.finish_seek == blocks[state.block].start,
+              "the looping run seeks to the start of the block it moves to, got " + std::to_string(run.finish_seek));
+    }
+    check(!ended, "a looping session never ends, visited " + visited);
+    check(visited == "Pomodoro 3 Guided Break 1 Pomodoro 2 Guided Break 2 Pomodoro 3 Guided Break 1 Pomodoro 2 Guided Break 2 Pomodoro 3 ",
+          "looping runs Pomodoro 3, Guided Break 1, Pomodoro 2, Guided Break 2 round and round, visited " + visited);
+    checkState(state, 1, 0, "the looping run is back on Guided Break 1 after two rounds");
+    checkNothingParked(state, "the looping run parks nothing");
+}
+
+static void checkFadeWalk(int from, int target, int step, const std::string& name)
+{
+    int current = from;
+    bool overshot = false;
+    bool wrong_way = false;
+    int steps = 0;
+    for (; steps < 100000; ++steps) {
+        int next = fadeStep(current, target, step);
+        if (from < target) {
+            if (next > target)
+                overshot = true;
+            if (next < current)
+                wrong_way = true;
+        }
+        if (from > target) {
+            if (next < target)
+                overshot = true;
+            if (next > current)
+                wrong_way = true;
+        }
+        if (next == current)
+            break;
+        current = next;
+    }
+    check(!overshot, name + " never overshoots the target, stopped at " + std::to_string(current));
+    check(!wrong_way, name + " never moves away from the target, stopped at " + std::to_string(current));
+    check(current == target, name + " reaches the target exactly, got " + std::to_string(current));
+    check(fadeStep(current, target, step) == target, name + " stays at the target once it arrives, got " + std::to_string(fadeStep(current, target, step)));
+    check(steps < 100000, name + " arrives in a finite number of steps");
+}
+
+static void testFadeStep()
+{
+    check(fadeStep(0, 100, 0) == 100, "a step of 0 goes straight to the target, got " + std::to_string(fadeStep(0, 100, 0)));
+    check(fadeStep(100, 0, 0) == 0, "a step of 0 goes straight down to the target, got " + std::to_string(fadeStep(100, 0, 0)));
+    check(fadeStep(0, 100, -5) == 100, "a negative step goes straight to the target, got " + std::to_string(fadeStep(0, 100, -5)));
+    check(fadeStep(70, 70, 0) == 70, "a step of 0 at the target keeps it, got " + std::to_string(fadeStep(70, 70, 0)));
+
+    check(fadeStep(0, 100, 10) == 10, "a fade up moves one step, got " + std::to_string(fadeStep(0, 100, 10)));
+    check(fadeStep(95, 100, 10) == 100, "a fade up with less than a step left lands on the target, got " + std::to_string(fadeStep(95, 100, 10)));
+    check(fadeStep(90, 100, 10) == 100, "a fade up with exactly a step left lands on the target, got " + std::to_string(fadeStep(90, 100, 10)));
+    check(fadeStep(99, 100, 1) == 100, "a fade up of one lands on the target, got " + std::to_string(fadeStep(99, 100, 1)));
+
+    check(fadeStep(100, 0, 10) == 90, "a fade down moves one step, got " + std::to_string(fadeStep(100, 0, 10)));
+    check(fadeStep(5, 0, 10) == 0, "a fade down with less than a step left lands on the target, got " + std::to_string(fadeStep(5, 0, 10)));
+    check(fadeStep(10, 0, 10) == 0, "a fade down with exactly a step left lands on the target, got " + std::to_string(fadeStep(10, 0, 10)));
+
+    check(fadeStep(50, 50, 10) == 50, "a current already at the target stays, got " + std::to_string(fadeStep(50, 50, 10)));
+    check(fadeStep(0, 0, 7) == 0, "a current and target of 0 stay at 0, got " + std::to_string(fadeStep(0, 0, 7)));
+
+    check(fadeStep(-20, 0, 5) == -15, "a fade up from a negative current works, got " + std::to_string(fadeStep(-20, 0, 5)));
+    check(fadeStep(-5, -100, 1000) == -100, "a huge step down to a negative target lands on it, got " + std::to_string(fadeStep(-5, -100, 1000)));
+    check(fadeStep(140, 120, 7) == 133, "a fade down from above 100 works, got " + std::to_string(fadeStep(140, 120, 7)));
+    check(fadeStep(200, 300, 1000) == 300, "a huge step up past 100 lands on the target, got " + std::to_string(fadeStep(200, 300, 1000)));
+    check(fadeStep(100, 150, 10) == 110, "a fade up past 100 is not clamped, got " + std::to_string(fadeStep(100, 150, 10)));
+    check(fadeStep(0, -50, 10) == -10, "a fade down below 0 is not clamped, got " + std::to_string(fadeStep(0, -50, 10)));
+
+    for (int step : {1, 2, 3, 7, 10, 33, 100}) {
+        checkFadeWalk(0, 100, step, "a walk up from 0 to 100 by " + std::to_string(step));
+        checkFadeWalk(100, 0, step, "a walk down from 100 to 0 by " + std::to_string(step));
+        checkFadeWalk(42, 73, step, "a walk up from 42 to 73 by " + std::to_string(step));
+        checkFadeWalk(73, 42, step, "a walk down from 73 to 42 by " + std::to_string(step));
+        checkFadeWalk(55, 55, step, "a walk that is already at 55 by " + std::to_string(step));
+        checkFadeWalk(-50, -10, step, "a walk up from -50 to -10 by " + std::to_string(step));
+        checkFadeWalk(150, 0, step, "a walk down from 150 to 0 by " + std::to_string(step));
+        checkFadeWalk(0, 150, step, "a walk up from 0 to 150 by " + std::to_string(step));
+    }
+}
+
 int main()
 {
     testPomodoroBlocks();
@@ -1631,6 +1950,7 @@ int main()
     testFillerAtEnd();
     testFillerInTheMiddle();
     testFillerEverywhere();
+    testTrailingBreakIsNotABlock();
     testFillerCaseVariations();
     testFillerDoesNotStretchNeighbours();
     testRestAndFillerTogether();
@@ -1679,5 +1999,11 @@ int main()
     testSessionVolumeNeverClamps();
     testSessionVolumeThroughARun();
     testSessionVolumeAfterASkip();
+    testLoopTargetOnEveryShapeOfList();
+    testLoopingOffEndsTheSession();
+    testLoopingAtTheEnd();
+    testLoopingWithAParkedBlock();
+    testLoopingNeverEnds();
+    testFadeStep();
     return report();
 }

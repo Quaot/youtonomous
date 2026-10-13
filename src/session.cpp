@@ -36,6 +36,9 @@ std::vector<Block> blocksOf(const Video& video)
             continue;
         blocks.push_back({chapters[i].label, start, end, label.find("break") != std::string::npos});
     }
+
+    while (!blocks.empty() && blocks.back().rest)
+        blocks.pop_back();
     return blocks;
 }
 
@@ -48,7 +51,7 @@ int blockAt(const std::vector<Block>& blocks, int position)
     return -1;
 }
 
-SessionAdvice advance(SessionState& state, const std::vector<Block>& blocks, int position, double seconds, bool playing)
+SessionAdvice advance(SessionState& state, const std::vector<Block>& blocks, int position, double seconds, bool playing, bool loop)
 {
     SessionAdvice advice;
     if (blocks.empty())
@@ -78,7 +81,10 @@ SessionAdvice advance(SessionState& state, const std::vector<Block>& blocks, int
             return advice;
         }
         state.elapsed = 0;
-        state.block = state.block + 1 < count ? state.block + 1 : -1;
+        if (state.block + 1 < count)
+            state.block = state.block + 1;
+        else
+            state.block = loop ? loopTarget(blocks) : -1;
         if (state.block >= 0)
             advice.seek_to = blocks[state.block].start;
         return advice;
@@ -162,4 +168,22 @@ int sessionVolume(const SessionState& state, const std::vector<Block>& blocks, b
     if (state.block < 0 || state.block >= static_cast<int>(blocks.size()))
         return wanted;
     return blocks[state.block].rest ? wanted : 0;
+}
+
+int loopTarget(const std::vector<Block>& blocks)
+{
+    for (size_t i = 0; i < blocks.size(); ++i) {
+        if (blocks[i].rest)
+            return static_cast<int>(i);
+    }
+    return blocks.empty() ? -1 : 0;
+}
+
+int fadeStep(int current, int target, int step)
+{
+    if (step <= 0)
+        return target;
+    if (current < target)
+        return std::min(target, current + step);
+    return std::max(target, current - step);
 }

@@ -506,6 +506,14 @@ static void secondRun(const std::wstring& command_line, std::wstring& environmen
               "the silent study box ticks");
     }
 
+    HWND loop = button(top, L"Loop session");
+    check(loop != nullptr, "a loop session box is shown");
+    if (loop) {
+        SendMessageW(loop, BM_CLICK, 0, 0);
+        check(waitFor([&] { return SendMessageW(loop, BM_GETCHECK, 0, 0) == BST_CHECKED; }, 2000),
+              "the loop session box ticks");
+    }
+
     check(waitFor([&] { return labelStartingWith(top, L"Break 1") != L""; }, 10000),
           "the session moves on to the break once the block is done");
     check(button(top, L"Study") != nullptr, "the break button offers a way back to studying");
@@ -606,6 +614,7 @@ int main(int argc, char** argv)
     nlohmann::json after = readJson(settings_file);
     check(after.value("window_x", -1) == 50 && after.value("window_width", 0) == 1000, "settings are saved again on close");
     check(after.value("silence_work", false), "closing the app saves the silent study setting");
+    check(after.value("loop_session", false), "closing the app saves the loop session setting");
 
     fs::remove_all(root, error);
     return report();

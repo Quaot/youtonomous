@@ -37,6 +37,7 @@ enum ControlId {
     kKeepPitch,
     kBreak,
     kSilence,
+    kLoop,
 };
 
 const int kPad = 8;
