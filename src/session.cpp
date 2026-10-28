@@ -131,6 +131,8 @@ SessionAdvice skip(SessionState& state, const std::vector<Block>& blocks, int po
             break;
         }
     }
+    if (target < 0 && !blocks.empty() && blocks[loopTarget(blocks)].rest)
+        target = loopTarget(blocks);
     if (target < 0)
         return advice;
 

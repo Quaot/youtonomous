@@ -1093,10 +1093,10 @@ static void testCutBreakShortOnTheRealVideo()
     SessionState last_work;
     last_work.block = 4;
     last_work.elapsed = 10;
-    SessionState last_before = last_work;
-    SessionAdvice none = skip(last_work, blocks, 10200, true);
-    checkEmptyAdvice(none, "the real video has no trailing break left to cut short");
-    checkSame(last_work, last_before, "skipping on the real video's last work block leaves the state alone");
+    SessionAdvice back = skip(last_work, blocks, 10200, true);
+    check(back.seek_to == 3067, "skipping on the real video's last work block goes back to Guided Break 1, got " + describeAdvice(back));
+    checkState(last_work, 1, 0, "skipping on the real video's last work block starts Guided Break 1");
+    checkResume(last_work, 4, 10, 10200, "skipping on the real video's last work block parks Pomodoro 3");
 }
 
 static void testSkipWithNoBreakAhead()
@@ -1106,26 +1106,27 @@ static void testSkipWithNoBreakAhead()
     SessionState last;
     last.block = 2;
     last.elapsed = 20;
-    SessionState last_before = last;
     SessionAdvice advice = skip(last, blocks, 130, false);
-    checkEmptyAdvice(advice, "skipping with no break ahead gives empty advice");
-    checkSame(last, last_before, "skipping with no break ahead leaves the state alone");
+    check(advice.seek_to == 60, "skipping with no break ahead goes back to the first break, got " + describeAdvice(advice));
+    check(advice.block_done, "an unbanked skip with no break ahead ends the work block, got " + describeAdvice(advice));
+    checkState(last, 1, 0, "skipping with no break ahead starts the first break with a fresh clock");
+    checkNothingParked(last, "an unbanked skip with no break ahead parks nothing");
 
     SessionState banked;
     banked.block = 2;
     banked.elapsed = 20;
-    SessionState banked_before = banked;
     SessionAdvice banked_advice = skip(banked, blocks, 130, true);
-    checkEmptyAdvice(banked_advice, "a banked skip with no break ahead gives empty advice");
-    checkSame(banked, banked_before, "a banked skip with no break ahead parks nothing");
+    check(banked_advice.seek_to == 60, "a banked skip with no break ahead goes back to the first break, got " + describeAdvice(banked_advice));
+    check(!banked_advice.block_done, "a banked skip with no break ahead is not a finish, got " + describeAdvice(banked_advice));
+    checkState(banked, 1, 0, "a banked skip with no break ahead starts the first break");
+    checkResume(banked, 2, 20, 130, "a banked skip with no break ahead parks the last work block");
 
     SessionState at_break_start;
     at_break_start.block = 0;
     at_break_start.elapsed = 10;
-    SessionState at_break_before = at_break_start;
     SessionAdvice at_break = skip(at_break_start, blocks, 60, false);
-    checkEmptyAdvice(at_break, "the only break starting exactly at the position is not a target");
-    checkSame(at_break_start, at_break_before, "the only break starting at the position leaves the state alone");
+    check(at_break.seek_to == 60, "the only break starting exactly at the position is still reached, got " + describeAdvice(at_break));
+    checkState(at_break_start, 1, 0, "the only break starting at the position becomes the block");
 
     std::vector<Block> all_work = {block("Pomodoro 1", 0, 60, false), block("Pomodoro 2", 60, 120, false)};
     SessionState no_rest;
@@ -1479,18 +1480,21 @@ static void testSkipOnTheRealVideo()
     SessionState from_third;
     from_third.block = 4;
     from_third.elapsed = 100;
-    SessionState third_before = from_third;
     SessionAdvice third = skip(from_third, blocks, 8000, false);
-    checkEmptyAdvice(third, "skipping from inside Pomodoro 3 finds no break ahead and does nothing");
-    checkSame(from_third, third_before, "skipping from inside Pomodoro 3 leaves the state alone");
+    check(third.seek_to == 3067, "skipping from inside Pomodoro 3 goes back to Guided Break 1 at 3067, got " + describeAdvice(third));
+    checkState(from_third, 1, 0, "skipping from inside Pomodoro 3 starts Guided Break 1");
 
     SessionState banked_third;
     banked_third.block = 4;
     banked_third.elapsed = 100;
-    SessionState banked_third_before = banked_third;
     SessionAdvice banked_third_advice = skip(banked_third, blocks, 8000, true);
-    checkEmptyAdvice(banked_third_advice, "a banked skip from inside Pomodoro 3 does nothing either");
-    checkSame(banked_third, banked_third_before, "a banked skip from inside Pomodoro 3 parks nothing");
+    check(banked_third_advice.seek_to == 3067, "a banked skip from inside Pomodoro 3 seeks to 3067, got " + describeAdvice(banked_third_advice));
+    checkResume(banked_third, 4, 100, 8000, "a banked skip from inside Pomodoro 3 parks Pomodoro 3");
+
+    RunResult third_break = playBlock(banked_third, blocks, 1, 1.0, 0.25);
+    check(third_break.finished && third_break.finish_seek == 8000,
+          "the break after Pomodoro 3 hands playback back to 8000, got " + std::to_string(third_break.finish_seek));
+    checkState(banked_third, 4, 100, "the banked skip returns to Pomodoro 3 with its 100s already spent");
 
     SessionState banked;
     banked.block = 0;
