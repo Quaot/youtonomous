@@ -185,8 +185,8 @@ LRESULT MainWindow::handle(UINT msg, WPARAM w_param, LPARAM l_param)
     case WM_CREATE:
         createControls();
         library_.load();
-        refreshLibrary();
         refreshTotals();
+        refreshLibrary();
         SetTimer(hwnd_, kTimer, 250, nullptr);
         if (!player_->ready()) {
             std::wstring message = L"Could not start the " + widen(settings_.backend) + L" player.";
@@ -494,6 +494,7 @@ void MainWindow::recordStudy(const std::string& label)
     entry.pitch = player_->pitch();
     appendStudy(entry, study_file_);
     refreshTotals();
+    refreshLibrary();
 }
 
 void MainWindow::refreshTotals()
@@ -501,6 +502,7 @@ void MainWindow::refreshTotals()
     std::vector<StudyEntry> entries = loadStudy(study_file_);
     studied_total_ = totalSeconds(entries);
     studied_today_ = secondsOnDay(entries, today());
+    studied_by_video_ = secondsByVideo(entries);
 }
 
 std::wstring MainWindow::totalsText() const
@@ -630,7 +632,7 @@ void MainWindow::openFirstMatch()
 
 void MainWindow::refreshLibrary()
 {
-    library_panel_.showVideos(library_.videos());
+    library_panel_.showVideos(library_.videos(), studied_by_video_);
 
     const auto& videos = library_.videos();
     for (size_t i = 0; i < videos.size(); ++i) {

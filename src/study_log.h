@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -17,3 +18,4 @@ bool appendStudy(const StudyEntry& entry, const std::filesystem::path& file);
 std::vector<StudyEntry> loadStudy(const std::filesystem::path& file);
 int totalSeconds(const std::vector<StudyEntry>& entries);
 int secondsOnDay(const std::vector<StudyEntry>& entries, const std::string& day);
+std::map<std::string, int> secondsByVideo(const std::vector<StudyEntry>& entries);

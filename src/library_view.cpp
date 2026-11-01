@@ -19,14 +19,6 @@ static bool byteLess(const std::string& a, const std::string& b)
     });
 }
 
-int watchedPercent(const Video& video)
-{
-    if (video.duration <= 0 || video.position <= 0)
-        return 0;
-    long long percent = static_cast<long long>(video.position) * 100 / video.duration;
-    return static_cast<int>(std::min(100LL, percent));
-}
-
 bool matchesSearch(const Video& video, const std::string& search)
 {
     std::string title = folded(video.title);
@@ -47,7 +39,14 @@ bool matchesSearch(const Video& video, const std::string& search)
     return true;
 }
 
-std::vector<int> libraryRows(const std::vector<Video>& videos, const std::string& search, SortBy sort_by, bool descending)
+static int studiedFor(const std::map<std::string, int>& studied, const std::string& id)
+{
+    auto found = studied.find(id);
+    return found == studied.end() ? 0 : found->second;
+}
+
+std::vector<int> libraryRows(const std::vector<Video>& videos, const std::map<std::string, int>& studied, const std::string& search,
+                             SortBy sort_by, bool descending)
 {
     std::vector<int> rows;
     for (size_t i = 0; i < videos.size(); ++i) {
@@ -67,7 +66,7 @@ std::vector<int> libraryRows(const std::vector<Video>& videos, const std::string
         switch (sort_by) {
         case SortBy::title: return byteLess(folded(first.title), folded(second.title));
         case SortBy::length: return first.duration < second.duration;
-        default: return watchedPercent(first) < watchedPercent(second);
+        default: return studiedFor(studied, first.id) < studiedFor(studied, second.id);
         }
     };
     std::stable_sort(rows.begin(), rows.end(), [&](int a, int b) { return descending ? less(b, a) : less(a, b); });

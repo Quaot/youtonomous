@@ -1,4 +1,5 @@
 #include <climits>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -39,87 +40,32 @@ static void expectRows(const std::vector<int>& got, const std::vector<int>& expe
     check(got == expected, name + ": expected " + describe(expected) + ", got " + describe(got));
 }
 
-static void expectPercent(int duration, int position, int expected, const std::string& name)
+static Video withId(const std::string& title, const std::string& id, int duration)
 {
-    int got = watchedPercent(makeVideo("Video", duration, position));
-    check(got == expected, name + ": expected " + std::to_string(expected) + ", got " + std::to_string(got));
+    Video video = makeVideo(title, duration, 0);
+    video.id = id;
+    video.url = "https://www.youtube.com/watch?v=" + id;
+    video.file = "C:\\Videos\\Youtonomous\\" + id + ".mp4";
+    return video;
+}
+
+static Video studyVideo(const std::string& title, const std::string& id)
+{
+    return withId(title, id, 600);
 }
 
 static std::vector<Video> realLibrary()
 {
     return {
-        makeVideo("The Feynman Technique", 121, 31),
-        makeVideo("3-HOUR STUDY WITH ME | Hyper Efficient, Doctor, Focus Music, Pomodoro 50-10", 10303, 7300),
-        makeVideo("1.5-HOUR STUDY WITH ME | Hyper Efficient, Doctor, Focus Music, Deep Work, Pomodoro 42-6-42", 5480, 0),
+        withId("The Feynman Technique", "tkm0TNFzIeg", 121),
+        withId("3-HOUR STUDY WITH ME | Hyper Efficient, Doctor, Focus Music, Pomodoro 50-10", "74cOUSKXMz0", 10303),
+        withId("1.5-HOUR STUDY WITH ME | Hyper Efficient, Doctor, Focus Music, Deep Work, Pomodoro 42-6-42", "sdhh7AYzsTY", 5480),
     };
 }
 
-static void testWatchedPercentBasics()
+static std::map<std::string, int> realStudied()
 {
-    expectPercent(100, 0, 0, "position 0 is 0 percent");
-    expectPercent(100, 50, 50, "halfway is 50 percent");
-    expectPercent(100, 100, 100, "the end is 100 percent");
-    expectPercent(200, 1, 0, "half a percent rounds down to 0");
-    expectPercent(3, 1, 33, "a third rounds down to 33");
-    expectPercent(3, 2, 66, "two thirds rounds down to 66");
-    expectPercent(1, 0, 0, "a one second video at 0 is 0 percent");
-    expectPercent(1, 1, 100, "a one second video at 1 is 100 percent");
-    expectPercent(1000, 999, 99, "one second short of the end is 99 percent");
-}
-
-static void testWatchedPercentBadDuration()
-{
-    expectPercent(0, 0, 0, "zero duration is 0 percent");
-    expectPercent(0, 50, 0, "zero duration with a position is 0 percent");
-    expectPercent(-10, 5, 0, "negative duration is 0 percent");
-    expectPercent(-10, -20, 0, "negative duration and position is 0 percent");
-    expectPercent(INT_MIN, INT_MAX, 0, "the most negative duration is 0 percent");
-}
-
-static void testWatchedPercentClamped()
-{
-    expectPercent(100, -1, 0, "a negative position is 0 percent");
-    expectPercent(100, -500, 0, "a large negative position is 0 percent");
-    expectPercent(100, INT_MIN, 0, "the most negative position is 0 percent");
-    expectPercent(100, 101, 100, "a position just past the end is 100 percent");
-    expectPercent(100, 5000, 100, "a position far past the end is 100 percent");
-    expectPercent(1, INT_MAX, 100, "the largest position on a one second video is 100 percent");
-}
-
-static void testWatchedPercentNoOverflow()
-{
-    expectPercent(10303, 10302, 99, "one second short of a long video is 99 percent");
-    expectPercent(10303, 7300, 70, "7300 of 10303 is 70 percent");
-    expectPercent(2000000000, 1999999999, 99, "one second short of a huge video is 99 percent");
-    expectPercent(2000000000, 1000000000, 50, "halfway through a huge video is 50 percent");
-    expectPercent(2000000000, 2000000000, 100, "the end of a huge video is 100 percent");
-    expectPercent(INT_MAX, INT_MAX - 1, 99, "one second short of the largest duration is 99 percent");
-    expectPercent(INT_MAX, INT_MAX, 100, "the end of the largest duration is 100 percent");
-    expectPercent(30000000, 29999999, 99, "a position that overflows times 100 is 99 percent");
-    expectPercent(30000000, 15000000, 50, "halfway where times 100 overflows is 50 percent");
-}
-
-static void testWatchedPercentRealLibrary()
-{
-    std::vector<Video> videos = realLibrary();
-    int feynman = watchedPercent(videos[0]);
-    int three_hour = watchedPercent(videos[1]);
-    int ninety_minute = watchedPercent(videos[2]);
-    check(feynman == 25, "The Feynman Technique is 25 percent watched, got " + std::to_string(feynman));
-    check(three_hour == 70, "the 3-hour video is 70 percent watched, got " + std::to_string(three_hour));
-    check(ninety_minute == 0, "the 1.5-hour video is 0 percent watched, got " + std::to_string(ninety_minute));
-}
-
-static void testWatchedPercentIgnoresOtherFields()
-{
-    Video video = makeVideo("Video", 200, 50);
-    video.start = 150;
-    Bookmark mark;
-    mark.time = 190;
-    mark.label = "End";
-    video.marks.push_back(mark);
-    int got = watchedPercent(video);
-    check(got == 25, "start and marks do not change the percent, got " + std::to_string(got));
+    return {{"74cOUSKXMz0", 275798}, {"sdhh7AYzsTY", 12625}};
 }
 
 static void testEmptySearchMatchesEverything()
@@ -242,15 +188,18 @@ static void testSearchRealLibrary()
 static void testEmptyLibrary()
 {
     std::vector<Video> videos;
-    SortBy sorts[] = {SortBy::added, SortBy::title, SortBy::length, SortBy::watched};
-    const char* names[] = {"added", "title", "length", "watched"};
+    std::map<std::string, int> studied = realStudied();
+    SortBy sorts[] = {SortBy::added, SortBy::title, SortBy::length, SortBy::studied};
+    const char* names[] = {"added", "title", "length", "studied"};
     for (int i = 0; i < 4; ++i) {
         for (bool descending : {false, true}) {
             std::string direction = descending ? " descending" : " ascending";
-            expectRows(libraryRows(videos, "", sorts[i], descending), {},
+            expectRows(libraryRows(videos, {}, "", sorts[i], descending), {},
                        std::string("an empty library gives no rows sorted by ") + names[i] + direction);
-            expectRows(libraryRows(videos, "feynman", sorts[i], descending), {},
+            expectRows(libraryRows(videos, {}, "feynman", sorts[i], descending), {},
                        std::string("an empty library with a search gives no rows sorted by ") + names[i] + direction);
+            expectRows(libraryRows(videos, studied, "", sorts[i], descending), {},
+                       std::string("an empty library with study time on record gives no rows sorted by ") + names[i] + direction);
         }
     }
 }
@@ -258,13 +207,16 @@ static void testEmptyLibrary()
 static void testSearchMatchingNothing()
 {
     std::vector<Video> videos = realLibrary();
-    SortBy sorts[] = {SortBy::added, SortBy::title, SortBy::length, SortBy::watched};
-    const char* names[] = {"added", "title", "length", "watched"};
+    std::map<std::string, int> studied = realStudied();
+    SortBy sorts[] = {SortBy::added, SortBy::title, SortBy::length, SortBy::studied};
+    const char* names[] = {"added", "title", "length", "studied"};
     for (int i = 0; i < 4; ++i) {
         for (bool descending : {false, true}) {
             std::string direction = descending ? " descending" : " ascending";
-            expectRows(libraryRows(videos, "calculus", sorts[i], descending), {},
+            expectRows(libraryRows(videos, {}, "calculus", sorts[i], descending), {},
                        std::string("a search matching nothing gives no rows sorted by ") + names[i] + direction);
+            expectRows(libraryRows(videos, studied, "calculus", sorts[i], descending), {},
+                       std::string("a search matching nothing gives no rows with study time sorted by ") + names[i] + direction);
         }
     }
 }
@@ -272,152 +224,252 @@ static void testSearchMatchingNothing()
 static void testSingleVideo()
 {
     std::vector<Video> videos = {makeVideo("Only", 0, 0)};
-    expectRows(libraryRows(videos, "", SortBy::added, false), {0}, "one video sorted by added");
-    expectRows(libraryRows(videos, "", SortBy::added, true), {0}, "one video sorted by added descending");
-    expectRows(libraryRows(videos, "", SortBy::title, true), {0}, "one video sorted by title descending");
-    expectRows(libraryRows(videos, "", SortBy::length, false), {0}, "one video with zero duration sorted by length");
-    expectRows(libraryRows(videos, "", SortBy::watched, true), {0}, "one video with zero duration sorted by watched descending");
-    expectRows(libraryRows(videos, "ONLY", SortBy::added, false), {0}, "one matching video is found");
-    expectRows(libraryRows(videos, "other", SortBy::added, false), {}, "one video that does not match gives no rows");
+    expectRows(libraryRows(videos, {}, "", SortBy::added, false), {0}, "one video sorted by added");
+    expectRows(libraryRows(videos, {}, "", SortBy::added, true), {0}, "one video sorted by added descending");
+    expectRows(libraryRows(videos, {}, "", SortBy::title, true), {0}, "one video sorted by title descending");
+    expectRows(libraryRows(videos, {}, "", SortBy::length, false), {0}, "one video with zero duration sorted by length");
+    expectRows(libraryRows(videos, {}, "", SortBy::studied, true), {0}, "one video with no study time sorted by studied descending");
+    expectRows(libraryRows(videos, {{"id0x0", 90}}, "", SortBy::studied, false), {0}, "one video with study time sorted by studied");
+    expectRows(libraryRows(videos, {{"id0x0", 90}}, "other", SortBy::studied, false), {},
+               "one video with study time that does not match gives no rows");
+    expectRows(libraryRows(videos, {}, "ONLY", SortBy::added, false), {0}, "one matching video is found");
+    expectRows(libraryRows(videos, {}, "other", SortBy::added, false), {}, "one video that does not match gives no rows");
 }
 
 static void testSortByAdded()
 {
     std::vector<Video> videos = {titled("Delta"), titled("alpha"), titled("Charlie"), titled("bravo")};
-    expectRows(libraryRows(videos, "", SortBy::added, false), {0, 1, 2, 3}, "added keeps library order");
-    expectRows(libraryRows(videos, "", SortBy::added, true), {3, 2, 1, 0}, "added descending reverses library order");
-    expectRows(libraryRows(videos, "a", SortBy::added, false), {0, 1, 2, 3}, "a search matching every video keeps library order");
-    expectRows(libraryRows(videos, "l", SortBy::added, false), {0, 1, 2}, "added skips videos that do not match");
-    expectRows(libraryRows(videos, "l", SortBy::added, true), {2, 1, 0}, "added descending skips videos that do not match");
-    expectRows(libraryRows(videos, "  \t ", SortBy::added, true), {3, 2, 1, 0}, "a whitespace search shows every video");
+    expectRows(libraryRows(videos, {}, "", SortBy::added, false), {0, 1, 2, 3}, "added keeps library order");
+    expectRows(libraryRows(videos, {}, "", SortBy::added, true), {3, 2, 1, 0}, "added descending reverses library order");
+    expectRows(libraryRows(videos, {}, "a", SortBy::added, false), {0, 1, 2, 3}, "a search matching every video keeps library order");
+    expectRows(libraryRows(videos, {}, "l", SortBy::added, false), {0, 1, 2}, "added skips videos that do not match");
+    expectRows(libraryRows(videos, {}, "l", SortBy::added, true), {2, 1, 0}, "added descending skips videos that do not match");
+    expectRows(libraryRows(videos, {}, "  \t ", SortBy::added, true), {3, 2, 1, 0}, "a whitespace search shows every video");
 }
 
 static void testSortByAddedSameTitles()
 {
     std::vector<Video> videos = {titled("Same"), titled("Same"), titled("Same")};
-    expectRows(libraryRows(videos, "", SortBy::added, false), {0, 1, 2}, "identical titles keep library order");
-    expectRows(libraryRows(videos, "", SortBy::added, true), {2, 1, 0}, "identical titles reverse under added descending");
+    expectRows(libraryRows(videos, {}, "", SortBy::added, false), {0, 1, 2}, "identical titles keep library order");
+    expectRows(libraryRows(videos, {}, "", SortBy::added, true), {2, 1, 0}, "identical titles reverse under added descending");
 }
 
 static void testSortByTitle()
 {
     std::vector<Video> videos = {titled("cherry"), titled("Banana"), titled("apple"), titled("Date")};
-    expectRows(libraryRows(videos, "", SortBy::title, false), {2, 1, 0, 3}, "title sorts alphabetically ignoring case");
-    expectRows(libraryRows(videos, "", SortBy::title, true), {3, 0, 1, 2}, "title descending sorts in reverse");
-    expectRows(libraryRows(videos, "an", SortBy::title, false), {1}, "title sort with a search shows only matches");
-    expectRows(libraryRows(videos, "e", SortBy::title, false), {2, 0, 3}, "title sort skips videos that do not match");
-    expectRows(libraryRows(videos, "e", SortBy::title, true), {3, 0, 2}, "title descending skips videos that do not match");
+    expectRows(libraryRows(videos, {}, "", SortBy::title, false), {2, 1, 0, 3}, "title sorts alphabetically ignoring case");
+    expectRows(libraryRows(videos, {}, "", SortBy::title, true), {3, 0, 1, 2}, "title descending sorts in reverse");
+    expectRows(libraryRows(videos, {}, "an", SortBy::title, false), {1}, "title sort with a search shows only matches");
+    expectRows(libraryRows(videos, {}, "e", SortBy::title, false), {2, 0, 3}, "title sort skips videos that do not match");
+    expectRows(libraryRows(videos, {}, "e", SortBy::title, true), {3, 0, 2}, "title descending skips videos that do not match");
 }
 
 static void testSortByTitleFoldsToLowercase()
 {
     std::vector<Video> videos = {titled("Zeta"), titled("_note"), titled("alpha")};
-    expectRows(libraryRows(videos, "", SortBy::title, false), {1, 2, 0}, "an underscore sorts before letters once letters fold to lowercase");
-    expectRows(libraryRows(videos, "", SortBy::title, true), {0, 2, 1}, "an underscore sorts after letters in descending title order");
+    expectRows(libraryRows(videos, {}, "", SortBy::title, false), {1, 2, 0}, "an underscore sorts before letters once letters fold to lowercase");
+    expectRows(libraryRows(videos, {}, "", SortBy::title, true), {0, 2, 1}, "an underscore sorts after letters in descending title order");
 
     std::vector<Video> brackets = {titled("B"), titled("[x"), titled("a")};
-    expectRows(libraryRows(brackets, "", SortBy::title, false), {1, 2, 0}, "[ sorts before folded letters");
+    expectRows(libraryRows(brackets, {}, "", SortBy::title, false), {1, 2, 0}, "[ sorts before folded letters");
 
     std::vector<Video> braces = {titled("{x"), titled("Z"), titled("a")};
-    expectRows(libraryRows(braces, "", SortBy::title, false), {2, 1, 0}, "{ sorts after folded letters");
+    expectRows(libraryRows(braces, {}, "", SortBy::title, false), {2, 1, 0}, "{ sorts after folded letters");
 }
 
 static void testSortByTitlePrefixesAndDigits()
 {
     std::vector<Video> videos = {titled("abcd"), titled("ABC"), titled(""), titled("ab"), titled("10"), titled("9"), titled(" lead")};
-    expectRows(libraryRows(videos, "", SortBy::title, false), {2, 6, 4, 5, 3, 1, 0},
+    expectRows(libraryRows(videos, {}, "", SortBy::title, false), {2, 6, 4, 5, 3, 1, 0},
                "the empty title comes first, then space, digits, then shorter prefixes before longer");
-    expectRows(libraryRows(videos, "", SortBy::title, true), {0, 1, 3, 5, 4, 6, 2}, "the same titles in descending order");
+    expectRows(libraryRows(videos, {}, "", SortBy::title, true), {0, 1, 3, 5, 4, 6, 2}, "the same titles in descending order");
 }
 
 static void testSortByTitleUtf8()
 {
     std::vector<Video> videos = {titled("émile"), titled("zed"), titled("Émile"), titled("Apple")};
-    expectRows(libraryRows(videos, "", SortBy::title, false), {3, 1, 2, 0},
+    expectRows(libraryRows(videos, {}, "", SortBy::title, false), {3, 1, 2, 0},
                "UTF-8 titles sort after ASCII by byte and É sorts before é");
-    expectRows(libraryRows(videos, "", SortBy::title, true), {0, 2, 1, 3}, "UTF-8 titles in descending order");
+    expectRows(libraryRows(videos, {}, "", SortBy::title, true), {0, 2, 1, 3}, "UTF-8 titles in descending order");
 
     std::vector<Video> accents = {titled("Ébc"), titled("éaa")};
-    expectRows(libraryRows(accents, "", SortBy::title, false), {0, 1}, "UTF-8 letters are not folded when sorting");
+    expectRows(libraryRows(accents, {}, "", SortBy::title, false), {0, 1}, "UTF-8 letters are not folded when sorting");
 }
 
 static void testSortByTitleTies()
 {
     std::vector<Video> videos = {titled("same"), titled("Other"), titled("SAME"), titled("Same"), titled("other")};
-    expectRows(libraryRows(videos, "", SortBy::title, false), {1, 4, 0, 2, 3}, "titles equal after folding keep library order");
-    expectRows(libraryRows(videos, "", SortBy::title, true), {0, 2, 3, 1, 4}, "titles equal after folding keep library order descending");
-    expectRows(libraryRows(videos, "same", SortBy::title, true), {0, 2, 3}, "tied titles keep library order with a search");
+    expectRows(libraryRows(videos, {}, "", SortBy::title, false), {1, 4, 0, 2, 3}, "titles equal after folding keep library order");
+    expectRows(libraryRows(videos, {}, "", SortBy::title, true), {0, 2, 3, 1, 4}, "titles equal after folding keep library order descending");
+    expectRows(libraryRows(videos, {}, "same", SortBy::title, true), {0, 2, 3}, "tied titles keep library order with a search");
 
     std::vector<Video> identical = {titled("x"), titled("x"), titled("x"), titled("x")};
-    expectRows(libraryRows(identical, "", SortBy::title, false), {0, 1, 2, 3}, "identical titles keep library order");
-    expectRows(libraryRows(identical, "", SortBy::title, true), {0, 1, 2, 3}, "identical titles keep library order descending");
+    expectRows(libraryRows(identical, {}, "", SortBy::title, false), {0, 1, 2, 3}, "identical titles keep library order");
+    expectRows(libraryRows(identical, {}, "", SortBy::title, true), {0, 1, 2, 3}, "identical titles keep library order descending");
 }
 
 static void testSortByLength()
 {
     std::vector<Video> videos = {makeVideo("a", 300, 0), makeVideo("b", 60, 0), makeVideo("c", 7200, 0), makeVideo("d", 1, 0)};
-    expectRows(libraryRows(videos, "", SortBy::length, false), {3, 1, 0, 2}, "length sorts shortest first");
-    expectRows(libraryRows(videos, "", SortBy::length, true), {2, 0, 1, 3}, "length descending sorts longest first");
+    expectRows(libraryRows(videos, {}, "", SortBy::length, false), {3, 1, 0, 2}, "length sorts shortest first");
+    expectRows(libraryRows(videos, {}, "", SortBy::length, true), {2, 0, 1, 3}, "length descending sorts longest first");
 }
 
 static void testSortByLengthTies()
 {
     std::vector<Video> videos = {makeVideo("a", 300, 0), makeVideo("b", 100, 0), makeVideo("c", 300, 0), makeVideo("d", 100, 0),
                                  makeVideo("e", 200, 0)};
-    expectRows(libraryRows(videos, "", SortBy::length, false), {1, 3, 4, 0, 2}, "equal lengths keep library order");
-    expectRows(libraryRows(videos, "", SortBy::length, true), {0, 2, 4, 1, 3}, "equal lengths keep library order descending");
+    expectRows(libraryRows(videos, {}, "", SortBy::length, false), {1, 3, 4, 0, 2}, "equal lengths keep library order");
+    expectRows(libraryRows(videos, {}, "", SortBy::length, true), {0, 2, 4, 1, 3}, "equal lengths keep library order descending");
 
     std::vector<Video> all_same = {makeVideo("a", 50, 0), makeVideo("b", 50, 0), makeVideo("c", 50, 0)};
-    expectRows(libraryRows(all_same, "", SortBy::length, false), {0, 1, 2}, "all equal lengths keep library order");
-    expectRows(libraryRows(all_same, "", SortBy::length, true), {0, 1, 2}, "all equal lengths keep library order descending");
+    expectRows(libraryRows(all_same, {}, "", SortBy::length, false), {0, 1, 2}, "all equal lengths keep library order");
+    expectRows(libraryRows(all_same, {}, "", SortBy::length, true), {0, 1, 2}, "all equal lengths keep library order descending");
 }
 
 static void testSortByLengthOddDurations()
 {
     std::vector<Video> videos = {makeVideo("a", 0, 0), makeVideo("b", -5, 0), makeVideo("c", 10, 0), makeVideo("d", 0, 0),
                                  makeVideo("e", INT_MAX, 0), makeVideo("f", INT_MIN, 0)};
-    expectRows(libraryRows(videos, "", SortBy::length, false), {5, 1, 0, 3, 2, 4}, "zero and negative durations sort by value");
-    expectRows(libraryRows(videos, "", SortBy::length, true), {4, 2, 0, 3, 1, 5}, "zero and negative durations sort by value descending");
+    expectRows(libraryRows(videos, {}, "", SortBy::length, false), {5, 1, 0, 3, 2, 4}, "zero and negative durations sort by value");
+    expectRows(libraryRows(videos, {}, "", SortBy::length, true), {4, 2, 0, 3, 1, 5}, "zero and negative durations sort by value descending");
 }
 
-static void testSortByWatched()
+static void testSortByStudied()
 {
-    std::vector<Video> videos = {makeVideo("a", 100, 40), makeVideo("b", 100, 90), makeVideo("c", 100, 10), makeVideo("d", 100, 60)};
-    expectRows(libraryRows(videos, "", SortBy::watched, false), {2, 0, 3, 1}, "watched sorts least watched first");
-    expectRows(libraryRows(videos, "", SortBy::watched, true), {1, 3, 0, 2}, "watched descending sorts most watched first");
+    std::vector<Video> videos = {studyVideo("a", "va"), studyVideo("b", "vb"), studyVideo("c", "vc"), studyVideo("d", "vd")};
+    std::map<std::string, int> studied = {{"va", 300}, {"vb", 60}, {"vc", 7200}, {"vd", 1}};
+    expectRows(libraryRows(videos, studied, "", SortBy::studied, false), {3, 1, 0, 2}, "studied sorts least studied first");
+    expectRows(libraryRows(videos, studied, "", SortBy::studied, true), {2, 0, 1, 3}, "studied descending sorts most studied first");
 }
 
-static void testSortByWatchedUsesPercentNotPosition()
+static void testSortByStudiedIgnoresLengthAndTitle()
 {
-    std::vector<Video> videos = {makeVideo("a", 10000, 1000), makeVideo("b", 100, 50), makeVideo("c", 1000, 900)};
-    expectRows(libraryRows(videos, "", SortBy::watched, false), {0, 1, 2}, "watched sorts by percent, not seconds watched");
-    expectRows(libraryRows(videos, "", SortBy::watched, true), {2, 1, 0}, "watched descending sorts by percent, not seconds watched");
+    std::vector<Video> videos = {withId("Zulu", "vz", 10), withId("alpha", "va", 9000), withId("Mike", "vm", 500)};
+    std::map<std::string, int> studied = {{"vz", 200}, {"va", 100}, {"vm", 300}};
+    expectRows(libraryRows(videos, studied, "", SortBy::studied, false), {1, 0, 2}, "studied sorts by seconds studied, not by length or title");
+    expectRows(libraryRows(videos, studied, "", SortBy::studied, true), {2, 0, 1},
+               "studied descending sorts by seconds studied, not by length or title");
+
+    Video played = studyVideo("e", "ve");
+    played.position = 590;
+    played.start = 300;
+    std::vector<Video> positions = {played, studyVideo("f", "vf")};
+    expectRows(libraryRows(positions, {{"vf", 1}}, "", SortBy::studied, false), {0, 1}, "the playback position is not counted as study time");
+    expectRows(libraryRows(positions, {{"vf", 1}}, "", SortBy::studied, true), {1, 0},
+               "the playback position is not counted as study time descending");
 }
 
-static void testSortByWatchedTies()
+static void testSortByStudiedMissingIds()
 {
-    std::vector<Video> videos = {makeVideo("a", 200, 100), makeVideo("b", 100, 10), makeVideo("c", 100, 50), makeVideo("d", 300, 151),
-                                 makeVideo("e", 1000, 100)};
-    expectRows(libraryRows(videos, "", SortBy::watched, false), {1, 4, 0, 2, 3}, "equal percents keep library order");
-    expectRows(libraryRows(videos, "", SortBy::watched, true), {0, 2, 3, 1, 4}, "equal percents keep library order descending");
+    std::vector<Video> videos = {studyVideo("a", "va"), studyVideo("b", "vb"), studyVideo("c", "vc"), studyVideo("d", "vd")};
+    std::map<std::string, int> studied = {{"va", 100}, {"vc", 50}};
+    expectRows(libraryRows(videos, studied, "", SortBy::studied, false), {1, 3, 2, 0}, "videos missing from the map count as 0 and come first");
+    expectRows(libraryRows(videos, studied, "", SortBy::studied, true), {0, 2, 1, 3}, "videos missing from the map count as 0 and come last descending");
+
+    expectRows(libraryRows(videos, {}, "", SortBy::studied, false), {0, 1, 2, 3}, "an empty map ties every video and keeps library order");
+    expectRows(libraryRows(videos, {}, "", SortBy::studied, true), {0, 1, 2, 3},
+               "an empty map ties every video and keeps library order descending");
+
+    std::map<std::string, int> zero = {{"vb", 0}, {"vd", 5}};
+    expectRows(libraryRows(videos, zero, "", SortBy::studied, false), {0, 1, 2, 3}, "a missing id ties with an id stored as 0");
+    expectRows(libraryRows(videos, zero, "", SortBy::studied, true), {3, 0, 1, 2}, "a missing id ties with an id stored as 0 descending");
 }
 
-static void testSortByWatchedClampedTies()
+static void testSortByStudiedExtraIds()
 {
-    std::vector<Video> videos = {makeVideo("a", 100, 500), makeVideo("b", 0, 50), makeVideo("c", 100, 100), makeVideo("d", 100, -30),
-                                 makeVideo("e", -10, 5), makeVideo("f", 100, 0), makeVideo("g", 100, 50)};
-    expectRows(libraryRows(videos, "", SortBy::watched, false), {1, 3, 4, 5, 6, 0, 2},
-               "clamped and zero duration percents tie and keep library order");
-    expectRows(libraryRows(videos, "", SortBy::watched, true), {0, 2, 6, 1, 3, 4, 5},
-               "clamped and zero duration percents tie and keep library order descending");
+    std::vector<Video> videos = {studyVideo("Alpha", "va"), studyVideo("Bravo", "vb")};
+    std::map<std::string, int> studied = {{"va", 20}, {"vb", 10}, {"gone", 999999}, {"", 50}, {"Alpha", -100}, {"VA", 1}, {"va ", 1000}};
+    expectRows(libraryRows(videos, studied, "", SortBy::studied, false), {1, 0}, "ids not in the library are ignored");
+    expectRows(libraryRows(videos, studied, "", SortBy::studied, true), {0, 1}, "ids not in the library are ignored descending");
+
+    std::map<std::string, int> only_extra = {{"gone", 999999}, {"other", -5}, {"Bravo", 7}};
+    expectRows(libraryRows(videos, only_extra, "", SortBy::studied, false), {0, 1}, "a map holding only other ids ties every video");
+    expectRows(libraryRows(videos, only_extra, "", SortBy::studied, true), {0, 1}, "a map holding only other ids ties every video descending");
 }
 
-static void testSortByWatchedLargeValues()
+static void testSortByStudiedTies()
 {
-    std::vector<Video> videos = {makeVideo("a", 2000000000, 1999999999), makeVideo("b", 2000000000, 2000000000),
-                                 makeVideo("c", 2000000000, 1000000000)};
-    expectRows(libraryRows(videos, "", SortBy::watched, false), {2, 0, 1}, "huge videos sort by percent without overflow");
-    expectRows(libraryRows(videos, "", SortBy::watched, true), {1, 0, 2}, "huge videos sort by percent descending without overflow");
+    std::vector<Video> videos = {studyVideo("a", "va"), studyVideo("b", "vb"), studyVideo("c", "vc"), studyVideo("d", "vd"),
+                                 studyVideo("e", "ve")};
+    std::map<std::string, int> studied = {{"va", 50}, {"vb", 10}, {"vc", 50}, {"vd", 10}, {"ve", 30}};
+    expectRows(libraryRows(videos, studied, "", SortBy::studied, false), {1, 3, 4, 0, 2}, "equal study times keep library order");
+    expectRows(libraryRows(videos, studied, "", SortBy::studied, true), {0, 2, 4, 1, 3}, "equal study times keep library order descending");
+
+    std::vector<Video> backwards = {studyVideo("z", "vz"), studyVideo("y", "vy"), studyVideo("x", "vx")};
+    std::map<std::string, int> same = {{"vz", 40}, {"vy", 40}, {"vx", 40}};
+    expectRows(libraryRows(backwards, same, "", SortBy::studied, false), {0, 1, 2}, "all equal study times keep library order");
+    expectRows(libraryRows(backwards, same, "", SortBy::studied, true), {0, 1, 2}, "all equal study times keep library order descending");
+}
+
+static void testSortByStudiedDuplicateIds()
+{
+    std::vector<Video> videos = {studyVideo("a", "vx"), studyVideo("b", "vy"), studyVideo("c", "vx"), studyVideo("d", "vz")};
+    std::map<std::string, int> studied = {{"vx", 100}, {"vy", 200}, {"vz", 50}};
+    expectRows(libraryRows(videos, studied, "", SortBy::studied, false), {3, 0, 2, 1}, "two videos with the same id both get its study time");
+    expectRows(libraryRows(videos, studied, "", SortBy::studied, true), {1, 0, 2, 3},
+               "two videos with the same id both get its study time descending");
+
+    std::vector<Video> missing = {studyVideo("a", "vx"), studyVideo("b", "vy"), studyVideo("c", "vx")};
+    expectRows(libraryRows(missing, {{"vy", 5}}, "", SortBy::studied, false), {0, 2, 1}, "two videos with the same missing id both count as 0");
+    expectRows(libraryRows(missing, {{"vy", 5}}, "", SortBy::studied, true), {1, 0, 2},
+               "two videos with the same missing id both count as 0 descending");
+
+    std::vector<Video> empty_ids = {studyVideo("a", ""), studyVideo("b", "vb"), studyVideo("c", "")};
+    std::map<std::string, int> empty_key = {{"", 80}, {"vb", 40}};
+    expectRows(libraryRows(empty_ids, empty_key, "", SortBy::studied, false), {1, 0, 2}, "videos with an empty id get the value stored under the empty id");
+    expectRows(libraryRows(empty_ids, empty_key, "", SortBy::studied, true), {0, 2, 1},
+               "videos with an empty id get the value stored under the empty id descending");
+}
+
+static void testSortByStudiedNegativeValues()
+{
+    std::vector<Video> videos = {studyVideo("a", "va"), studyVideo("b", "vb"), studyVideo("c", "vc"), studyVideo("d", "vd"),
+                                 studyVideo("e", "ve")};
+    std::map<std::string, int> studied = {{"va", -5}, {"vc", 10}, {"vd", INT_MIN}, {"ve", -5}};
+    expectRows(libraryRows(videos, studied, "", SortBy::studied, false), {3, 0, 4, 1, 2}, "negative study times sort below a missing id");
+    expectRows(libraryRows(videos, studied, "", SortBy::studied, true), {2, 1, 0, 4, 3},
+               "negative study times sort below a missing id descending");
+}
+
+static void testSortByStudiedLargeValues()
+{
+    std::vector<Video> videos = {studyVideo("a", "va"), studyVideo("b", "vb"), studyVideo("c", "vc"), studyVideo("d", "vd"),
+                                 studyVideo("e", "ve")};
+    std::map<std::string, int> studied = {{"va", INT_MAX}, {"vb", INT_MAX - 1}, {"vc", 0}, {"vd", INT_MAX}, {"ve", 2000000000}};
+    expectRows(libraryRows(videos, studied, "", SortBy::studied, false), {2, 4, 1, 0, 3}, "study times near INT_MAX sort by value");
+    expectRows(libraryRows(videos, studied, "", SortBy::studied, true), {0, 3, 1, 4, 2},
+               "study times near INT_MAX sort by value descending and tie in library order");
+
+    std::vector<Video> spread = {studyVideo("a", "va"), studyVideo("b", "vb"), studyVideo("c", "vc"), studyVideo("d", "vd")};
+    std::map<std::string, int> extremes = {{"va", INT_MAX}, {"vb", INT_MIN}, {"vc", 1}, {"vd", -1}};
+    expectRows(libraryRows(spread, extremes, "", SortBy::studied, false), {1, 3, 2, 0}, "INT_MAX and INT_MIN together sort without overflow");
+    expectRows(libraryRows(spread, extremes, "", SortBy::studied, true), {0, 2, 3, 1},
+               "INT_MAX and INT_MIN together sort without overflow descending");
+}
+
+static void testStudiedOnlyChangesStudiedSort()
+{
+    std::vector<Video> videos = {withId("Delta", "vd", 300), withId("alpha", "va", 60), withId("Charlie", "vc", 7200),
+                                 withId("bravo", "vb", 1)};
+    std::map<std::string, int> studied = {{"vd", 5}, {"va", 9000}, {"vc", -40}, {"vb", INT_MAX}, {"gone", 100}};
+    SortBy sorts[] = {SortBy::added, SortBy::title, SortBy::length};
+    const char* names[] = {"added", "title", "length"};
+    for (int i = 0; i < 3; ++i) {
+        for (bool descending : {false, true}) {
+            std::string direction = descending ? " descending" : " ascending";
+            for (const std::string& search : {std::string(""), std::string("a"), std::string("l"), std::string("zzz")}) {
+                std::vector<int> without = libraryRows(videos, {}, search, sorts[i], descending);
+                std::vector<int> with = libraryRows(videos, studied, search, sorts[i], descending);
+                expectRows(with, without, std::string("study time does not change the rows sorted by ") + names[i] + direction
+                                              + " for the search \"" + search + "\"");
+            }
+        }
+    }
+    expectRows(libraryRows(videos, studied, "", SortBy::added, false), {0, 1, 2, 3}, "added with study time keeps library order");
+    expectRows(libraryRows(videos, studied, "", SortBy::title, false), {1, 3, 2, 0}, "title with study time sorts alphabetically");
+    expectRows(libraryRows(videos, studied, "", SortBy::length, true), {2, 0, 1, 3}, "length with study time sorts longest first");
+    expectRows(libraryRows(videos, studied, "l", SortBy::added, false), {0, 1, 2}, "study time does not bring back videos the search skips");
 }
 
 static void testSearchAndSortTogether()
@@ -425,56 +477,78 @@ static void testSearchAndSortTogether()
     std::vector<Video> videos = {makeVideo("Calculus Lecture 3", 3000, 1500), makeVideo("Piano practice", 900, 900),
                                  makeVideo("calculus lecture 1", 2800, 2800), makeVideo("Lofi beats", 7200, 100),
                                  makeVideo("CALCULUS Lecture 2", 3000, 300)};
-    expectRows(libraryRows(videos, "calculus", SortBy::added, false), {0, 2, 4}, "search then added gives matching library order");
-    expectRows(libraryRows(videos, "calculus", SortBy::added, true), {4, 2, 0}, "search then added descending");
-    expectRows(libraryRows(videos, "lecture calculus", SortBy::title, false), {2, 4, 0}, "search then title sorts lecture numbers");
-    expectRows(libraryRows(videos, "LECTURE", SortBy::title, true), {0, 4, 2}, "search then title descending");
-    expectRows(libraryRows(videos, "calculus", SortBy::length, false), {2, 0, 4}, "search then length keeps tied lengths in library order");
-    expectRows(libraryRows(videos, "calculus", SortBy::length, true), {0, 4, 2}, "search then length descending keeps ties in library order");
-    expectRows(libraryRows(videos, "calculus", SortBy::watched, false), {4, 0, 2}, "search then watched");
-    expectRows(libraryRows(videos, "calculus", SortBy::watched, true), {2, 0, 4}, "search then watched descending");
-    expectRows(libraryRows(videos, "  ", SortBy::watched, true), {1, 2, 0, 4, 3}, "a blank search sorts every video by watched descending");
+    expectRows(libraryRows(videos, {}, "calculus", SortBy::added, false), {0, 2, 4}, "search then added gives matching library order");
+    expectRows(libraryRows(videos, {}, "calculus", SortBy::added, true), {4, 2, 0}, "search then added descending");
+    expectRows(libraryRows(videos, {}, "lecture calculus", SortBy::title, false), {2, 4, 0}, "search then title sorts lecture numbers");
+    expectRows(libraryRows(videos, {}, "LECTURE", SortBy::title, true), {0, 4, 2}, "search then title descending");
+    expectRows(libraryRows(videos, {}, "calculus", SortBy::length, false), {2, 0, 4}, "search then length keeps tied lengths in library order");
+    expectRows(libraryRows(videos, {}, "calculus", SortBy::length, true), {0, 4, 2}, "search then length descending keeps ties in library order");
+    std::map<std::string, int> studied = {{"id3000x1500", 1500}, {"id900x900", 9000}, {"id2800x2800", 2800}, {"id7200x100", 100}};
+    expectRows(libraryRows(videos, studied, "calculus", SortBy::studied, false), {4, 0, 2}, "search then studied");
+    expectRows(libraryRows(videos, studied, "calculus", SortBy::studied, true), {2, 0, 4}, "search then studied descending");
+    expectRows(libraryRows(videos, studied, "  ", SortBy::studied, true), {1, 2, 0, 3, 4}, "a blank search sorts every video by studied descending");
+    expectRows(libraryRows(videos, studied, "piano", SortBy::studied, false), {1}, "a search for the most studied video shows only that video");
+    expectRows(libraryRows(videos, studied, "lecture 2", SortBy::studied, true), {4},
+               "a search for a video with no study time shows only that video");
 }
 
 static void testRealLibraryRows()
 {
     std::vector<Video> videos = realLibrary();
-    expectRows(libraryRows(videos, "", SortBy::added, false), {0, 1, 2}, "real library by added");
-    expectRows(libraryRows(videos, "", SortBy::added, true), {2, 1, 0}, "real library by added descending");
-    expectRows(libraryRows(videos, "", SortBy::title, false), {2, 1, 0}, "real library by title");
-    expectRows(libraryRows(videos, "", SortBy::title, true), {0, 1, 2}, "real library by title descending");
-    expectRows(libraryRows(videos, "", SortBy::length, false), {0, 2, 1}, "real library by length");
-    expectRows(libraryRows(videos, "", SortBy::length, true), {1, 2, 0}, "real library by length descending");
-    expectRows(libraryRows(videos, "", SortBy::watched, false), {2, 0, 1}, "real library by watched");
-    expectRows(libraryRows(videos, "", SortBy::watched, true), {1, 0, 2}, "real library by watched descending");
-    expectRows(libraryRows(videos, "study", SortBy::added, false), {1, 2}, "real library search for study");
-    expectRows(libraryRows(videos, "study", SortBy::length, false), {2, 1}, "real library search for study by length");
-    expectRows(libraryRows(videos, "POMODORO focus", SortBy::watched, true), {1, 2}, "real library search for pomodoro focus by watched descending");
-    expectRows(libraryRows(videos, "deep work", SortBy::added, false), {2}, "real library search for deep work");
-    expectRows(libraryRows(videos, "50-10", SortBy::title, false), {1}, "real library search for 50-10");
-    expectRows(libraryRows(videos, "technique", SortBy::added, true), {0}, "real library search for technique");
-    expectRows(libraryRows(videos, "the", SortBy::added, false), {0}, "the matches only The Feynman Technique");
-    expectRows(libraryRows(videos, "e", SortBy::title, false), {2, 1, 0}, "a single letter matching every title");
-    expectRows(libraryRows(videos, "feynman study", SortBy::added, false), {}, "words from different videos match nothing");
+    expectRows(libraryRows(videos, {}, "", SortBy::added, false), {0, 1, 2}, "real library by added");
+    expectRows(libraryRows(videos, {}, "", SortBy::added, true), {2, 1, 0}, "real library by added descending");
+    expectRows(libraryRows(videos, {}, "", SortBy::title, false), {2, 1, 0}, "real library by title");
+    expectRows(libraryRows(videos, {}, "", SortBy::title, true), {0, 1, 2}, "real library by title descending");
+    expectRows(libraryRows(videos, {}, "", SortBy::length, false), {0, 2, 1}, "real library by length");
+    expectRows(libraryRows(videos, {}, "", SortBy::length, true), {1, 2, 0}, "real library by length descending");
+    expectRows(libraryRows(videos, {}, "study", SortBy::added, false), {1, 2}, "real library search for study");
+    expectRows(libraryRows(videos, {}, "study", SortBy::length, false), {2, 1}, "real library search for study by length");
+    expectRows(libraryRows(videos, {}, "deep work", SortBy::added, false), {2}, "real library search for deep work");
+    expectRows(libraryRows(videos, {}, "50-10", SortBy::title, false), {1}, "real library search for 50-10");
+    expectRows(libraryRows(videos, {}, "technique", SortBy::added, true), {0}, "real library search for technique");
+    expectRows(libraryRows(videos, {}, "the", SortBy::added, false), {0}, "the matches only The Feynman Technique");
+    expectRows(libraryRows(videos, {}, "e", SortBy::title, false), {2, 1, 0}, "a single letter matching every title");
+    expectRows(libraryRows(videos, {}, "feynman study", SortBy::added, false), {}, "words from different videos match nothing");
+}
+
+static void testRealLibraryStudied()
+{
+    std::vector<Video> videos = realLibrary();
+    std::map<std::string, int> studied = realStudied();
+    expectRows(libraryRows(videos, studied, "", SortBy::studied, false), {0, 2, 1}, "real library by studied");
+    expectRows(libraryRows(videos, studied, "", SortBy::studied, true), {1, 2, 0}, "real library by studied descending");
+    expectRows(libraryRows(videos, studied, "study", SortBy::studied, false), {2, 1}, "real library search for study by studied");
+    expectRows(libraryRows(videos, studied, "POMODORO focus", SortBy::studied, true), {1, 2},
+               "real library search for pomodoro focus by studied descending");
+    expectRows(libraryRows(videos, studied, "feynman", SortBy::studied, true), {0}, "real library search for feynman by studied");
+    expectRows(libraryRows(videos, studied, "deep work", SortBy::studied, false), {2}, "real library search for deep work by studied");
+    expectRows(libraryRows(videos, studied, "feynman study", SortBy::studied, false), {}, "words from different videos match nothing by studied");
+    expectRows(libraryRows(videos, {}, "", SortBy::studied, false), {0, 1, 2}, "real library with no study time keeps library order");
+    expectRows(libraryRows(videos, {}, "", SortBy::studied, true), {0, 1, 2}, "real library with no study time keeps library order descending");
+    expectRows(libraryRows(videos, studied, "", SortBy::added, false), {0, 1, 2}, "real library by added with study time");
+    expectRows(libraryRows(videos, studied, "", SortBy::title, false), {2, 1, 0}, "real library by title with study time");
+    expectRows(libraryRows(videos, studied, "", SortBy::length, true), {1, 2, 0}, "real library by length descending with study time");
+
+    std::map<std::string, int> feynman_first = studied;
+    feynman_first["tkm0TNFzIeg"] = 300000;
+    expectRows(libraryRows(videos, feynman_first, "", SortBy::studied, true), {0, 1, 2},
+               "real library with Feynman studied the most puts it first descending");
 }
 
 static void testRowsDoNotChangeLibrary()
 {
     std::vector<Video> videos = realLibrary();
-    libraryRows(videos, "study", SortBy::title, true);
+    std::map<std::string, int> studied = realStudied();
+    libraryRows(videos, {}, "study", SortBy::title, true);
+    libraryRows(videos, studied, "study", SortBy::studied, true);
     check(videos[0].title == "The Feynman Technique", "libraryRows leaves the first video in place");
     check(videos[2].duration == 5480, "libraryRows leaves the last video in place");
-    expectRows(libraryRows(videos, "", SortBy::added, false), {0, 1, 2}, "a second call sees the same library order");
+    check(studied == realStudied(), "libraryRows leaves the studied map unchanged, got " + std::to_string(studied.size()) + " entries");
+    expectRows(libraryRows(videos, {}, "", SortBy::added, false), {0, 1, 2}, "a second call sees the same library order");
 }
 
 int main()
 {
-    testWatchedPercentBasics();
-    testWatchedPercentBadDuration();
-    testWatchedPercentClamped();
-    testWatchedPercentNoOverflow();
-    testWatchedPercentRealLibrary();
-    testWatchedPercentIgnoresOtherFields();
     testEmptySearchMatchesEverything();
     testSingleWordSearch();
     testSearchIgnoresAsciiCase();
@@ -496,13 +570,18 @@ int main()
     testSortByLength();
     testSortByLengthTies();
     testSortByLengthOddDurations();
-    testSortByWatched();
-    testSortByWatchedUsesPercentNotPosition();
-    testSortByWatchedTies();
-    testSortByWatchedClampedTies();
-    testSortByWatchedLargeValues();
+    testSortByStudied();
+    testSortByStudiedIgnoresLengthAndTitle();
+    testSortByStudiedMissingIds();
+    testSortByStudiedExtraIds();
+    testSortByStudiedTies();
+    testSortByStudiedDuplicateIds();
+    testSortByStudiedNegativeValues();
+    testSortByStudiedLargeValues();
+    testStudiedOnlyChangesStudiedSort();
     testSearchAndSortTogether();
     testRealLibraryRows();
+    testRealLibraryStudied();
     testRowsDoNotChangeLibrary();
     return report();
 }

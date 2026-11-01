@@ -119,3 +119,11 @@ int secondsOnDay(const std::vector<StudyEntry>& entries, const std::string& day)
     }
     return total;
 }
+
+std::map<std::string, int> secondsByVideo(const std::vector<StudyEntry>& entries)
+{
+    std::map<std::string, int> totals;
+    for (const StudyEntry& entry : entries)
+        totals[entry.video_id] += entry.seconds;
+    return totals;
+}

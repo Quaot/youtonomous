@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <map>
 #include <memory>
 #include <string>
 
@@ -102,6 +103,7 @@ private:
     double block_studied_ = 0;
     int studied_today_ = 0;
     int studied_total_ = 0;
+    std::map<std::string, int> studied_by_video_;
     int wanted_volume_ = 100;
     int applied_volume_ = -1;
 };

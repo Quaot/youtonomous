@@ -1,5 +1,6 @@
 #pragma once
 
+#include <map>
 #include <string>
 #include <vector>
 
@@ -27,7 +28,7 @@ public:
     void showStatus(const std::wstring& text);
     void setDownloading(bool downloading);
 
-    void showVideos(const std::vector<Video>& videos);
+    void showVideos(const std::vector<Video>& videos, const std::map<std::string, int>& studied);
     void select(int index);
     int selected(size_t count) const;
     int firstShown() const { return rows_.empty() ? -1 : rows_.front(); }

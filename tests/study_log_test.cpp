@@ -2,6 +2,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <map>
 #include <string>
 #include <system_error>
 #include <utility>
@@ -91,6 +92,30 @@ static std::string describeAll(const std::vector<StudyEntry>& entries)
     for (const StudyEntry& entry : entries)
         text += " " + describe(entry);
     return text + "]";
+}
+
+static std::string describeMap(const std::map<std::string, int>& totals)
+{
+    std::string text = "{" + std::to_string(totals.size()) + ":";
+    for (const auto& [video_id, seconds] : totals)
+        text += " \"" + video_id + "\"=" + std::to_string(seconds);
+    return text + "}";
+}
+
+static int sumValues(const std::map<std::string, int>& totals)
+{
+    int sum = 0;
+    for (const auto& total : totals)
+        sum += total.second;
+    return sum;
+}
+
+static void checkByVideo(const std::vector<StudyEntry>& entries, const std::map<std::string, int>& expected, const std::string& name)
+{
+    std::map<std::string, int> got = secondsByVideo(entries);
+    check(got == expected, "secondsByVideo() " + name + " is " + describeMap(expected) + ", got " + describeMap(got));
+    check(sumValues(got) == totalSeconds(entries), "secondsByVideo() " + name + " adds up to totalSeconds() "
+                                                       + std::to_string(totalSeconds(entries)) + ", got " + std::to_string(sumValues(got)));
 }
 
 static bool sameEntry(const StudyEntry& a, const StudyEntry& b)
@@ -719,6 +744,117 @@ static void testTotalsAfterLoad()
           "secondsOnDay() of the loaded entries for an unused day is 0, got " + std::to_string(secondsOnDay(loaded, "2026-10-08")));
 }
 
+static void testSecondsByVideo()
+{
+    std::vector<StudyEntry> empty;
+    checkByVideo(empty, {}, "of an empty vector");
+
+    checkByVideo({makeEntry("2026-10-09", "dQw4w9WgXcQ", "Pomodoro 1", 1500, 1.25, -2)}, {{"dQw4w9WgXcQ", 1500}}, "of one entry");
+
+    std::vector<StudyEntry> entries{
+        makeEntry("2026-10-09", "a", "Pomodoro 1", 1500, 1.0, 0),
+        makeEntry("2026-10-09", "b", "Pomodoro 2", 300, 1.25, 1),
+        makeEntry("2026-10-10", "a", "Deep work", 900, 2.0, -4),
+        makeEntry("2026-10-11", "c", "Pomodoro 3", 60, 0.75, 6),
+        makeEntry("2026-10-11", "a", "Pomodoro 1", 45, 1.5, 3),
+        makeEntry("", "b", "", 120, 1.0, 0),
+    };
+    checkByVideo(entries, {{"a", 2445}, {"b", 420}, {"c", 60}}, "sums every entry of an id whatever its day, label, speed or pitch");
+
+    std::vector<StudyEntry> one_id{
+        makeEntry("2026-10-09", "same", "Pomodoro 1", 100, 1.0, 0),
+        makeEntry("2026-10-09", "same", "Pomodoro 1", 100, 1.0, 0),
+        makeEntry("2026-10-09", "same", "Pomodoro 1", 100, 1.0, 0),
+    };
+    checkByVideo(one_id, {{"same", 300}}, "of three identical entries");
+}
+
+static void testSecondsByVideoKeys()
+{
+    std::vector<StudyEntry> blank{
+        makeEntry("2026-10-09", "", "Pomodoro 1", 70, 1.0, 0),
+        makeEntry("2026-10-09", "b", "Pomodoro 2", 30, 1.0, 0),
+        makeEntry("2026-10-10", "", "Pomodoro 3", 5, 1.0, 0),
+    };
+    checkByVideo(blank, {{"", 75}, {"b", 30}}, "sums entries with an empty video_id under the empty key");
+    checkByVideo({makeEntry("2026-10-09", "", "", 60, 1.0, 0)}, {{"", 60}}, "of only an empty video_id");
+
+    std::vector<StudyEntry> cased{
+        makeEntry("2026-10-09", "abc", "Pomodoro 1", 1, 1.0, 0),
+        makeEntry("2026-10-09", "ABC", "Pomodoro 2", 20, 1.0, 0),
+        makeEntry("2026-10-09", "abc ", "Pomodoro 3", 300, 1.0, 0),
+        makeEntry("2026-10-09", " abc", "Pomodoro 4", 4000, 1.0, 0),
+    };
+    checkByVideo(cased, {{"abc", 1}, {"ABC", 20}, {"abc ", 300}, {" abc", 4000}},
+                 "keeps ids that differ only in case or spaces apart");
+
+    std::vector<StudyEntry> utf8{
+        makeEntry("2026-10-09", "\xE6\x97\xA5\xE6\x9C\xAC-id", "Pomodoro 1", 240, 1.0, 0),
+        makeEntry("2026-10-10", "\xE6\x97\xA5\xE6\x9C\xAC-id", "Pomodoro 2", 60, 1.0, 0),
+    };
+    checkByVideo(utf8, {{"\xE6\x97\xA5\xE6\x9C\xAC-id", 300}}, "sums a non-ASCII video_id");
+
+    std::vector<StudyEntry> days{
+        makeEntry("2026-10-09", "a", "Pomodoro 1", 10, 1.0, 0),
+        makeEntry("2026-10-09", "2026-10-09", "Pomodoro 2", 20, 1.0, 0),
+    };
+    checkByVideo(days, {{"a", 10}, {"2026-10-09", 20}}, "keys on video_id, not on day");
+}
+
+static void testSecondsByVideoOddSeconds()
+{
+    std::vector<StudyEntry> zero{
+        makeEntry("2026-10-09", "a", "Pomodoro 1", 0, 1.0, 0),
+        makeEntry("2026-10-09", "b", "Pomodoro 2", 60, 1.0, 0),
+    };
+    checkByVideo(zero, {{"a", 0}, {"b", 60}}, "keeps an id whose only entry has 0 seconds");
+
+    std::vector<StudyEntry> negative{
+        makeEntry("2026-10-09", "a", "Pomodoro 1", -30, 1.0, 0),
+        makeEntry("2026-10-09", "a", "Pomodoro 2", 100, 1.0, 0),
+        makeEntry("2026-10-10", "b", "Pomodoro 3", -1500, 1.0, 0),
+    };
+    checkByVideo(negative, {{"a", 70}, {"b", -1500}}, "sums negative seconds as stored");
+
+    std::vector<StudyEntry> cancel{
+        makeEntry("2026-10-09", "a", "Pomodoro 1", 600, 1.0, 0),
+        makeEntry("2026-10-10", "a", "Pomodoro 2", -600, 1.0, 0),
+        makeEntry("2026-10-10", "b", "Pomodoro 3", 5, 1.0, 0),
+    };
+    checkByVideo(cancel, {{"a", 0}, {"b", 5}}, "keeps an id whose entries sum to 0");
+
+    std::vector<StudyEntry> large{
+        makeEntry("2026-10-09", "a", "Pomodoro 1", 2000000000, 1.0, 0),
+        makeEntry("2026-10-09", "b", "Pomodoro 2", 100000000, 1.0, 0),
+        makeEntry("2026-10-10", "b", "Pomodoro 3", 47483647, 1.0, 0),
+    };
+    checkByVideo(large, {{"a", 2000000000}, {"b", 147483647}}, "sums large seconds without mixing ids");
+}
+
+static void testSecondsByVideoAfterLoad()
+{
+    fs::path file = root / "by-video" / "study.json";
+    std::vector<StudyEntry> wanted{
+        makeEntry("2026-10-09", "74cOUSKXMz0", "Pomodoro 1", 3000, 1.0, 0),
+        makeEntry("2026-10-09", "sdhh7AYzsTY", "Pomodoro 1", 2520, 1.25, -2),
+        makeEntry("2026-10-10", "74cOUSKXMz0", "Pomodoro 2", 3000, 1.5, 3),
+        makeEntry("2026-10-10", "tkm0TNFzIeg", "Feynman", 121, 1.0, 0),
+        makeEntry("2026-10-11", "74cOUSKXMz0", "Pomodoro 3", 1200, 0.75, 0),
+        makeEntry("2026-10-11", "", "No video", 600, 1.0, 0),
+    };
+    for (const StudyEntry& entry : wanted)
+        check(tryAppend(entry, file, "by video setup"), "appendStudy() for the by video setup returns true");
+
+    std::vector<StudyEntry> loaded = tryLoad(file, "by video");
+    check(sameEntries(loaded, wanted), "the by video file loads back every entry, got " + describeAll(loaded));
+    std::map<std::string, int> expected{{"74cOUSKXMz0", 7200}, {"sdhh7AYzsTY", 2520}, {"tkm0TNFzIeg", 121}, {"", 600}};
+    checkByVideo(loaded, expected, "of the loaded entries");
+    std::map<std::string, int> got = secondsByVideo(loaded);
+    check(sumValues(got) == 10441, "secondsByVideo() of the loaded entries adds up to 10441, got " + std::to_string(sumValues(got)));
+    check(got == secondsByVideo(wanted), "secondsByVideo() gives the same map before and after loading, got " + describeMap(got));
+    check(got.count("gone") == 0, "secondsByVideo() of the loaded entries has no id that was never written, got " + describeMap(got));
+}
+
 static void testLoadTwice()
 {
     fs::path file = root / "load-twice" / "study.json";
@@ -766,6 +902,10 @@ int main()
     testTotalSeconds();
     testSecondsOnDay();
     testTotalsAfterLoad();
+    testSecondsByVideo();
+    testSecondsByVideoKeys();
+    testSecondsByVideoOddSeconds();
+    testSecondsByVideoAfterLoad();
     testLoadTwice();
 
     fs::remove_all(root, error);

@@ -12,8 +12,8 @@ using namespace ui;
 namespace {
 
 const int kLengthColumn = 64;
-const int kWatchedColumn = 64;
-const SortBy kColumnSort[] = {SortBy::title, SortBy::length, SortBy::watched};
+const int kStudiedColumn = 64;
+const SortBy kColumnSort[] = {SortBy::title, SortBy::length, SortBy::studied};
 
 void addColumn(HWND list, int index, const wchar_t* title, int width, int format)
 {
@@ -56,7 +56,7 @@ void LibraryPanel::create(const Context& context)
     SendMessageW(list_, LVM_SETEXTENDEDLISTVIEWSTYLE, extended, extended);
     addColumn(list_, 0, L"Title", 100, LVCFMT_LEFT);
     addColumn(list_, 1, L"Length", kLengthColumn, LVCFMT_RIGHT);
-    addColumn(list_, 2, L"Watched", kWatchedColumn, LVCFMT_RIGHT);
+    addColumn(list_, 2, L"Studied", kStudiedColumn, LVCFMT_RIGHT);
 }
 
 void LibraryPanel::layout(int height)
@@ -82,7 +82,7 @@ void LibraryPanel::layout(int height)
 
     RECT inside;
     GetClientRect(list_, &inside);
-    int title_width = std::max(60, static_cast<int>(inside.right) - kLengthColumn - kWatchedColumn);
+    int title_width = std::max(60, static_cast<int>(inside.right) - kLengthColumn - kStudiedColumn);
     SendMessageW(list_, LVM_SETCOLUMNWIDTH, 0, title_width);
 }
 
@@ -139,9 +139,9 @@ void LibraryPanel::setDownloading(bool downloading)
     EnableWindow(download_button_, downloading ? FALSE : TRUE);
 }
 
-void LibraryPanel::showVideos(const std::vector<Video>& videos)
+void LibraryPanel::showVideos(const std::vector<Video>& videos, const std::map<std::string, int>& studied)
 {
-    rows_ = libraryRows(videos, search(), sort_by_, descending_);
+    rows_ = libraryRows(videos, studied, search(), sort_by_, descending_);
 
     SendMessageW(list_, WM_SETREDRAW, FALSE, 0);
     SendMessageW(list_, LVM_DELETEALLITEMS, 0, 0);
@@ -156,7 +156,9 @@ void LibraryPanel::showVideos(const std::vector<Video>& videos)
         SendMessageW(list_, LVM_INSERTITEMW, 0, reinterpret_cast<LPARAM>(&item));
 
         setCell(list_, static_cast<int>(row), 1, video.duration > 0 ? widen(timecode::format(video.duration)) : L"");
-        setCell(list_, static_cast<int>(row), 2, video.duration > 0 ? std::to_wstring(watchedPercent(video)) + L"%" : L"");
+        auto seconds = studied.find(video.id);
+        bool any = seconds != studied.end() && seconds->second > 0;
+        setCell(list_, static_cast<int>(row), 2, any ? widen(timecode::format(seconds->second)) : L"");
     }
     SendMessageW(list_, WM_SETREDRAW, TRUE, 0);
     showSortArrow();
