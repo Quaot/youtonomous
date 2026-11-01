@@ -62,7 +62,7 @@ bool MainWindow::create(HINSTANCE instance, int show)
 {
     instance_ = instance;
 
-    INITCOMMONCONTROLSEX controls{sizeof controls, ICC_PROGRESS_CLASS | ICC_BAR_CLASSES};
+    INITCOMMONCONTROLSEX controls{sizeof controls, ICC_PROGRESS_CLASS | ICC_BAR_CLASSES | ICC_LISTVIEW_CLASSES};
     InitCommonControlsEx(&controls);
 
     WNDCLASSEXW wc{};
@@ -199,6 +199,9 @@ LRESULT MainWindow::handle(UINT msg, WPARAM w_param, LPARAM l_param)
     case WM_COMMAND:
         onCommand(LOWORD(w_param), HIWORD(w_param));
         return 0;
+    case WM_NOTIFY:
+        onNotify(reinterpret_cast<NMHDR*>(l_param));
+        return 0;
     case WM_HSCROLL:
         if (player_panel_.isVolumeBar(reinterpret_cast<HWND>(l_param))) {
             wanted_volume_ = player_panel_.volumeSetting();
@@ -328,12 +331,9 @@ void MainWindow::onCommand(int id, int code)
         if (code == STN_DBLCLK)
             setFullscreen(!fullscreen_);
         break;
-    case kLibrary:
-        if (code == LBN_DBLCLK) {
-            int index = library_panel_.selected(library_.videos().size());
-            if (index >= 0)
-                openVideo(library_.videos()[index].id);
-        }
+    case kSearch:
+        if (code == EN_CHANGE)
+            refreshLibrary();
         break;
     case kMarks:
         if (code == LBN_SELCHANGE) {
@@ -601,9 +601,42 @@ void MainWindow::onDownloadDone(DownloadResult* raw)
     openVideo(id);
 }
 
+void MainWindow::onNotify(const NMHDR* header)
+{
+    if (!library_panel_.isList(header->hwndFrom))
+        return;
+
+    if (header->code == NM_DBLCLK || header->code == NM_RETURN) {
+        openSelected();
+    } else if (header->code == LVN_COLUMNCLICK) {
+        library_panel_.sortByColumn(reinterpret_cast<const NMLISTVIEW*>(header)->iSubItem);
+        refreshLibrary();
+    }
+}
+
+void MainWindow::openSelected()
+{
+    int index = library_panel_.selected(library_.videos().size());
+    if (index >= 0)
+        openVideo(library_.videos()[index].id);
+}
+
+void MainWindow::openFirstMatch()
+{
+    int index = library_panel_.firstShown();
+    if (index >= 0 && static_cast<size_t>(index) < library_.videos().size())
+        openVideo(library_.videos()[index].id);
+}
+
 void MainWindow::refreshLibrary()
 {
     library_panel_.showVideos(library_.videos());
+
+    const auto& videos = library_.videos();
+    for (size_t i = 0; i < videos.size(); ++i) {
+        if (videos[i].id == current_id_)
+            library_panel_.select(static_cast<int>(i));
+    }
 }
 
 void MainWindow::openVideo(const std::string& id)
@@ -629,11 +662,7 @@ void MainWindow::openVideo(const std::string& id)
     block_studied_ = 0;
     last_tick_ = GetTickCount64();
 
-    const auto& videos = library_.videos();
-    for (size_t i = 0; i < videos.size(); ++i) {
-        if (videos[i].id == id)
-            library_panel_.select(static_cast<int>(i));
-    }
+    refreshLibrary();
     SetWindowTextW(hwnd_, (L"Youtonomous - " + widen(found->title)).c_str());
     refreshMarks();
     tick();
@@ -873,14 +902,17 @@ bool MainWindow::handleKey(const MSG& msg)
 
     HWND focus = GetFocus();
     bool in_url = library_panel_.isUrlBox(focus);
+    bool in_search = library_panel_.isSearchBox(focus);
     bool in_start = marks_panel_.isStartBox(focus);
     bool in_label = marks_panel_.isLabelBox(focus);
     bool in_note = marks_panel_.isNoteBox(focus);
-    bool typing = in_url || in_start || in_label || in_note;
+    bool typing = in_url || in_search || in_start || in_label || in_note;
 
     if (msg.wParam == VK_RETURN && typing && !in_note) {
         if (in_url)
             download();
+        else if (in_search)
+            openFirstMatch();
         else if (in_start)
             saveStartFromBox();
         else if (editing_mark_ >= 0)

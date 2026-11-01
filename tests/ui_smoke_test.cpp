@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <filesystem>
@@ -14,6 +15,7 @@
 
 #include "check.h"
 #include "timecode.h"
+#include "ui/controls.h"
 
 namespace fs = std::filesystem;
 using Clock = std::chrono::steady_clock;
@@ -200,9 +202,9 @@ static std::wstring labelStartingWith(HWND top, const std::wstring& prefix)
 static int markCount(HWND top)
 {
     std::vector<HWND> lists = children(top, L"ListBox");
-    if (lists.size() < 2)
+    if (lists.empty())
         return -1;
-    return static_cast<int>(SendMessageW(lists[1], LB_GETCOUNT, 0, 0));
+    return static_cast<int>(SendMessageW(lists[0], LB_GETCOUNT, 0, 0));
 }
 
 static std::wstring speedShown(HWND top)
@@ -276,14 +278,14 @@ static std::string narrowText(const std::wstring& text)
 static int markIndex(HWND top, const std::wstring& text)
 {
     std::vector<HWND> lists = children(top, L"ListBox");
-    if (lists.size() < 2)
+    if (lists.empty())
         return -1;
-    int count = static_cast<int>(SendMessageW(lists[1], LB_GETCOUNT, 0, 0));
+    int count = static_cast<int>(SendMessageW(lists[0], LB_GETCOUNT, 0, 0));
     for (int i = 0; i < count; ++i) {
         wchar_t line[512] = L"";
-        if (SendMessageW(lists[1], LB_GETTEXTLEN, i, 0) >= 512)
+        if (SendMessageW(lists[0], LB_GETTEXTLEN, i, 0) >= 512)
             continue;
-        SendMessageW(lists[1], LB_GETTEXT, i, reinterpret_cast<LPARAM>(line));
+        SendMessageW(lists[0], LB_GETTEXT, i, reinterpret_cast<LPARAM>(line));
         if (std::wstring(line).find(text) != std::wstring::npos)
             return i;
     }
@@ -293,11 +295,11 @@ static int markIndex(HWND top, const std::wstring& text)
 static void selectMark(HWND top, int index)
 {
     std::vector<HWND> lists = children(top, L"ListBox");
-    if (lists.size() < 2)
+    if (lists.empty())
         return;
-    SendMessageW(lists[1], LB_SETCURSEL, index, 0);
-    WPARAM command = MAKEWPARAM(GetDlgCtrlID(lists[1]), LBN_SELCHANGE);
-    SendMessageW(top, WM_COMMAND, command, reinterpret_cast<LPARAM>(lists[1]));
+    SendMessageW(lists[0], LB_SETCURSEL, index, 0);
+    WPARAM command = MAKEWPARAM(GetDlgCtrlID(lists[0]), LBN_SELCHANGE);
+    SendMessageW(top, WM_COMMAND, command, reinterpret_cast<LPARAM>(lists[0]));
 }
 
 static bool hasNote(const nlohmann::json& video, const std::string& label, const std::string& note)
@@ -393,6 +395,24 @@ static void firstRun(const std::wstring& command_line, std::wstring& environment
     check(waitFor([&] { return markCount(top) == before + 1; }, 3000), "B adds a bookmark" + got(markCount(top)));
 
     std::vector<HWND> edits = children(top, L"Edit");
+    HWND search = nullptr;
+    for (HWND edit : edits) {
+        if (GetDlgCtrlID(edit) == ui::kSearch)
+            search = edit;
+    }
+    check(search != nullptr, "the library has a search box");
+    edits.erase(std::remove(edits.begin(), edits.end(), search), edits.end());
+
+    std::vector<HWND> tables = children(top, L"SysListView32");
+    auto shown = [&] { return tables.empty() ? -1 : static_cast<int>(SendMessageW(tables[0], LVM_GETITEMCOUNT, 0, 0)); };
+    check(shown() == 1, "the library table lists the video" + got(shown()));
+    if (search) {
+        setText(search, L"no such title");
+        check(waitFor([&] { return shown() == 0; }, 3000), "a search with no match empties the table" + got(shown()));
+        setText(search, L"");
+        check(waitFor([&] { return shown() == 1; }, 3000), "clearing the search lists the video again" + got(shown()));
+    }
+
     check(edits.size() >= 3, "URL, start and bookmark label boxes exist");
     if (edits.size() >= 3) {
         setText(edits[2], L"Smoke mark");
@@ -546,7 +566,7 @@ static void secondRun(const std::wstring& command_line, std::wstring& environmen
         GetWindowRect(top, &now);
         return within(now.left, 48, 52) && within(now.top, 58, 62) && within(now.right - now.left, 998, 1002);
     };
-    std::vector<HWND> lists = children(top, L"ListBox");
+    std::vector<HWND> lists = children(top, L"SysListView32");
 
     key(top, 'F');
     check(waitFor(fills_screen, 3000), "F fills the screen");

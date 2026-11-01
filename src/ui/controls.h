@@ -38,6 +38,7 @@ enum ControlId {
     kBreak,
     kSilence,
     kLoop,
+    kSearch,
 };
 
 const int kPad = 8;

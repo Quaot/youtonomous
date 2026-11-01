@@ -31,6 +31,7 @@ private:
     void createControls();
     void layout(int width, int height);
     void onCommand(int id, int code);
+    void onNotify(const NMHDR* header);
     void tick();
     void saveSettingsOnClose();
     void setFullscreen(bool fullscreen);
@@ -39,6 +40,8 @@ private:
     void download();
     void onDownloadDone(DownloadResult* result);
     void refreshLibrary();
+    void openSelected();
+    void openFirstMatch();
     void openVideo(const std::string& id);
     void removeSelected();
 

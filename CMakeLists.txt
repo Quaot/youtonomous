@@ -12,6 +12,7 @@ find_package(nlohmann_json REQUIRED)
 add_library(core STATIC
     src/timecode.cpp
     src/library.cpp
+    src/library_view.cpp
     src/settings.cpp
     src/session.cpp
     src/study_log.cpp
@@ -53,6 +54,10 @@ add_test(NAME timecode COMMAND timecode_test)
 add_executable(library_test tests/library_test.cpp)
 target_link_libraries(library_test PRIVATE core)
 add_test(NAME library COMMAND library_test)
+
+add_executable(library_view_test tests/library_view_test.cpp)
+target_link_libraries(library_view_test PRIVATE core)
+add_test(NAME library_view COMMAND library_view_test)
 
 add_executable(settings_test tests/settings_test.cpp)
 target_link_libraries(settings_test PRIVATE core)
